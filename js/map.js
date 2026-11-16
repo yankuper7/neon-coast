@@ -282,7 +282,62 @@
     return [2, 2];
   }
 
+  // --- רמזורים: בכל צומת שני (דוגמת שחמט), עם הפרשי זמן שיוצרים "גל ירוק" ---
+  const CYCLE = 20;
+  const signal = new Uint8Array(N * N);
+  for (let j = 2; j <= 58; j += 4) for (let i = 2; i <= 54; i += 4) {
+    if (connCount(conn(i, j)) >= 3 && (((i - 2) / 4 + (j - 2) / 4) % 2 === 0)) signal[idx(i, j)] = 1;
+  }
+  const signalAt = (i, j) => inb(i, j) && signal[idx(i, j)] === 1;
+  // שלב: 0 ירוק צפון-דרום, 1 צהוב, 2 אדום לכולם, 3 ירוק מזרח-מערב, 4 צהוב, 5 אדום לכולם
+  function lightPhase(i, j, time) {
+    const t = (time + ((i - 2) / 4) * 3.5 + ((j - 2) / 4) * 6) % CYCLE;
+    return t < 7.5 ? 0 : t < 9 ? 1 : t < 10 ? 2 : t < 17.5 ? 3 : t < 19 ? 4 : 5;
+  }
+  // 2 = ירוק, 1 = צהוב, 0 = אדום – לציר הנסיעה הנתון
+  function canGo(i, j, axisNS, time) {
+    const ph = lightPhase(i, j, time);
+    return axisNS ? (ph === 0 ? 2 : ph === 1 ? 1 : 0) : (ph === 3 ? 2 : ph === 4 ? 1 : 0);
+  }
+
+  // --- קו ראייה: האם בניין גבוה מסתיר בין שתי נקודות ---
+  function los(x0, y0, x1, y1) {
+    const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 26));
+    for (let q = 1; q < n; q++) {
+      const x = x0 + (x1 - x0) * q / n, y = y0 + (y1 - y0) * q / n, i = Math.floor(x / T), j = Math.floor(y / T);
+      if (!inb(i, j)) continue;
+      for (const b of bGrid[idx(i, j)]) if (b.z > 40 && x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return false;
+    }
+    return true;
+  }
+
+  // --- שדה מרחקים על רשת הכבישים (BFS) מנקודה נתונה. out: Int16Array בגודל N*N ---
+  const DIR4 = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  function fieldFrom(x, y, out) {
+    out.fill(-1);
+    const [si, sj] = nearestRoad(x, y);
+    const q = [si, sj]; out[idx(si, sj)] = 0;
+    for (let h = 0; h < q.length; h += 2) {
+      const i = q[h], j = q[h + 1], d = out[idx(i, j)] + 1;
+      for (let k = 0; k < 4; k++) {
+        const ni = i + DIR4[k][0], nj = j + DIR4[k][1];
+        if (isRoad(ni, nj) && out[idx(ni, nj)] < 0) { out[idx(ni, nj)] = d; q.push(ni, nj); }
+      }
+    }
+    return out;
+  }
+  // מרחק נסיעה בכבישים בין שתי נקודות, ביחידות עולם
+  const tmpField = new Int16Array(N * N);
+  function roadDist(ax, ay, bx, by) {
+    fieldFrom(bx, by, tmpField);
+    const [i, j] = nearestRoad(ax, ay), v = tmpField[idx(i, j)];
+    return (v < 0 ? Math.hypot(ax - bx, ay - by) / T : v) * T;
+  }
+  // אריחי כביש ישרים (לא צמתים) – מקומות טובים לעצירה, לאיסוף נוסעים ולמחסומים
+  const straightTiles = roadTiles.filter(([i, j]) => { const m = conn(i, j); return m === 5 || m === 10; });
+
   NC.map = {
+    signalAt, lightPhase, canGo, los, fieldFrom, roadDist, straightTiles,
     T, N, WS, GROUND, ROAD, SAND, WATER, PARK, GLADE, tiles, idx, inb, isRoad, conn, connCount,
     tileAt: (x, y) => { const i = Math.floor(x / T), j = Math.floor(y / T); return inb(i, j) ? tiles[idx(i, j)] : WATER; },
     // מים עמוקים (טובעים בהם). המשבצת הראשונה ליד החוף רדודה – רק מאטה

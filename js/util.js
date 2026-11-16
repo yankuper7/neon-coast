@@ -37,4 +37,21 @@ window.NC = {};
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
   };
+  NC.rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+  NC.smooth = (t) => { t = NC.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  NC.approach = (v, target, step) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
+  NC.fmtMoney = (v) => '$' + Math.floor(v).toLocaleString('en-US');
+  NC.fmtTime = (s) => { s = Math.max(0, s); const m = Math.floor(s / 60), r = s - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1); };
+  NC.isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+
+  // הגדרות המשתמש – נשמרות בנפרד מהתקדמות המשחק
+  const DEFAULTS = { master: 0.8, music: 0.7, sfx: 0.9, quality: 'auto', difficulty: 'normal', touchMode: 'point', vibrate: true, shake: true, showFps: false };
+  NC.settings = Object.assign({}, DEFAULTS, NC.store.get('neonCoast.settings', {}));
+  NC.saveSettings = () => NC.store.set('neonCoast.settings', NC.settings);
+  NC.DIFF = {
+    easy: { name: 'Easy', time: 1.25, dmg: 0.65, cops: 0.8, pay: 0.9 },
+    normal: { name: 'Normal', time: 1, dmg: 1, cops: 1, pay: 1 },
+    hard: { name: 'Hard', time: 0.85, dmg: 1.35, cops: 1.25, pay: 1.25 },
+  };
+  NC.diff = () => NC.DIFF[NC.settings.difficulty] || NC.DIFF.normal;
 })();
