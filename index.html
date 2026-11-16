@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a0f2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Neon Coast</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <canvas id="radar"></canvas>
+    <div id="hudRight">
+      <div class="row">
+        <button id="btnPause" class="icon-btn" aria-label="Pause">⏸</button>
+        <button id="btnRadio" class="icon-btn" aria-label="Radio">📻</button>
+        <button id="btnMute" class="icon-btn" aria-label="Sound">🔊</button>
+        <div class="chip" id="hudClock">15:00</div>
+      </div>
+      <div class="money" id="hudMoney">$0</div>
+      <div class="stars" id="hudStars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+      <div class="bar"><span>❤</span><div class="track"><div id="barHp" class="fill hp"></div></div></div>
+      <div class="bar hidden" id="carBox"><span id="carName">🚗</span><div class="track"><div id="barCar" class="fill car"></div></div><b id="carSpeed">0</b></div>
+    </div>
+    <div id="timer" class="hidden">0:00</div>
+    <div id="district"></div>
+    <div id="objective" class="hidden"></div>
+    <div id="toast" class="hidden"></div>
+  </div>
+
+  <button id="btnEnter" class="pad hidden" aria-label="Enter or exit car">🚗</button>
+  <button id="btnBrake" class="pad hidden" aria-label="Handbrake">Hand<br>brake</button>
+
+  <div id="banner" class="hidden"><div id="bannerTitle"></div><div id="bannerSub"></div></div>
+  <div id="dead" class="hidden"><div id="deadText"></div></div>
+
+  <div id="menu" class="screen">
+    <div class="panel">
+      <div class="sun"></div>
+      <h1>Neon Coast</h1>
+      <p class="tagline">Open city. Fast cars. Pink sunsets.</p>
+      <button class="btn primary hidden" id="btnContinue">▶ Continue</button>
+      <button class="btn primary" id="btnNew">New game</button>
+      <button class="btn" id="btnHowto">How to play</button>
+      <button class="btn" id="btnMuteMenu">🔊 Sound: on</button>
+    </div>
+  </div>
+
+  <div id="howto" class="screen hidden">
+    <div class="panel wide">
+      <h2>How to play</h2>
+      <ul class="howto">
+        <li><b>On foot:</b> arrow keys or WASD · Shift to run · <b>E</b> to get into a nearby car.</li>
+        <li><b>In a car:</b> ↑ gas · ↓ brake and reverse · ← → steer · Space handbrake · <b>E</b> exit · H horn · R radio.</li>
+        <li><b>On a phone:</b> drag a finger like a joystick – the car drives where you point. The 🚗 button gets in and out, and the handbrake button is for sharp turns.</li>
+        <li><b>Missions:</b> the yellow circle with a letter on the map is your next mission. Stand on it to start.</li>
+        <li><b>Police ★:</b> stealing a car, hitting pedestrians or ramming a police car earns stars. Get out of the cops' sight, or drive into a spray shop 🎨 (green square on the radar, $100).</li>
+        <li><b>Your car:</b> crashes damage it. When it pours black smoke, get out before it explodes. The spray shop also repairs it.</li>
+        <li><b>🦩 Golden flamingos:</b> 15 statues are hidden around the city. Each one is worth $150.</li>
+        <li><b>Pause and map:</b> P or Esc.</li>
+      </ul>
+      <button class="btn primary" id="btnHowtoBack">Back</button>
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="panel wide">
+      <h2>⏸ Paused</h2>
+      <canvas id="bigmap" width="488" height="488"></canvas>
+      <p class="legend">⚪ You · 🟡 Mission · 🟢 Spray shop · ✚ Hospital · ★ Police</p>
+      <p id="pauseStats" class="stats"></p>
+      <button class="btn primary" id="btnResume">Resume</button>
+      <button class="btn" id="btnQuit">Save and quit to menu</button>
+    </div>
+  </div>
+
+  <div id="brief" class="screen hidden">
+    <div class="panel wide">
+      <div class="who" id="briefWho"></div>
+      <h2 id="briefTitle"></h2>
+      <p id="briefText" class="brief-text"></p>
+      <p class="reward">Reward: <b id="briefReward"></b></p>
+      <button class="btn primary" id="btnAccept">Let's go!</button>
+      <button class="btn" id="btnDecline">Not now</button>
+    </div>
+  </div>
+
+  <script src="js/util.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/missions.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+hebrew-backup/
+backup-before-upgrade/
+.DS_Store
+node_modules/
+.shots/
+shots-tmp/
