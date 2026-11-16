@@ -968,9 +968,21 @@
     // חץ כיוון ליעד
     const tg = NC.mission.target();
     if (tg) {
-      const dx = tg.x - pp.x, dy = tg.y - pp.y, d = Math.hypot(dx, dy);
+      const dx = tg.x - pp.x, dy = tg.y - pp.y;
+      let d = Math.hypot(dx, dy);
       if (d > 260) {
-        const a = Math.atan2(dy, dx), R = Math.min(cw, ch) * 0.33;
+        // החץ מראה את הדרך בכבישים (הפנייה הבאה), לא קו אווירי דרך הבניינים
+        let ax = tg.x, ay = tg.y;
+        const gp = NC.mission.gps();
+        if (gp) {
+          d = gp.len; let acc = 0;
+          for (let q = 1; q < gp.pts.length; q++) {
+            const a0 = gp.pts[q - 1], a1 = gp.pts[q], L = Math.hypot(a1.x - a0.x, a1.y - a0.y);
+            if (acc + L >= 380) { const f = (380 - acc) / L; ax = a0.x + (a1.x - a0.x) * f; ay = a0.y + (a1.y - a0.y) * f; break; }
+            acc += L; ax = a1.x; ay = a1.y;
+          }
+        }
+        const a = Math.atan2(ay - pp.y, ax - pp.x), R = Math.min(cw, ch) * 0.33;
         const px = cw / 2 + (pp.x - cam.x) * k / dpr + Math.cos(a) * R, py = ch / 2 + (pp.y - cam.y) * k / dpr + Math.sin(a) * R;
         ctx.save(); ctx.translate(px, py); ctx.rotate(a);
         ctx.fillStyle = mc(tg); ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 2;
@@ -1008,6 +1020,14 @@
     // אזור החיפוש של המשטרה כשאיבדו אותך
     if (G.wanted > 0 && G.lkp && G.hideT > 1) { const p = put(G.lkp.x, G.lkp.y, false); if (p) { g.strokeStyle = 'rgba(255,225,77,0.8)'; g.fillStyle = 'rgba(255,225,77,0.14)'; g.lineWidth = 1.5 * u; g.beginPath(); g.arc(p[0], p[1], 420 * sc, 0, TAU); g.fill(); g.stroke(); } }
     for (const k of ['spray', 'spray2']) { const p = put(M.special[k].x, M.special[k].y, false); if (p) { g.fillStyle = '#3dff9e'; g.fillRect(p[0] - 3 * u, p[1] - 3 * u, 6 * u, 6 * u); } }
+    // קו ניווט אל היעד, לאורך הכבישים
+    const gp = NC.mission.gps();
+    if (gp) {
+      g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath();
+      gp.pts.forEach((q, n) => { const x = c + (q.x - pp.x) * sc, y = c + (q.y - pp.y) * sc; if (n) g.lineTo(x, y); else g.moveTo(x, y); });
+      g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 5.5 * u; g.stroke();
+      g.strokeStyle = gp.col || mcol(gp.kind); g.lineWidth = 2.8 * u; g.stroke();
+    }
     for (const m of marks) {
       const p = put(m.x, m.y, m.kind !== 'next' && m.kind !== 'job' && m.kind !== 'heal'); if (!p) continue;
       g.fillStyle = mc(m); g.strokeStyle = '#000'; g.lineWidth = 1.5 * u;
@@ -1047,6 +1067,12 @@
     dot(M.special.police.x, M.special.police.y, '#4d8dff', 7, '★');
     dot(M.special.home.x, M.special.home.y, '#ffd8a8', 7, '⌂');
     for (let i = 0; i < NC.PKGS.length; i++) if (G.pkgs.includes(i)) dot(NC.PKGS[i].x, NC.PKGS[i].y, '#ff9ecf', 3.5, '');
+    const gp = NC.mission.gps();
+    if (gp) {
+      g.lineJoin = 'round'; g.lineCap = 'round'; g.beginPath();
+      gp.pts.forEach((q, n) => { if (n) g.lineTo(w2(q.x), w2(q.y)); else g.moveTo(w2(q.x), w2(q.y)); });
+      g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 7; g.stroke(); g.strokeStyle = gp.col || mcol(gp.kind); g.lineWidth = 3.5; g.stroke();
+    }
     for (const m of NC.mission.markers()) if (m.kind !== 'next') dot(m.x, m.y, mc(m), m.kind === 'item' || m.kind === 'rival' ? 5 : 9, m.label && m.label.length === 1 ? m.label : '');
     const pp = NC.world.playerPos();
     g.save(); g.translate(w2(pp.x), w2(pp.y)); g.rotate(G.player.ang); g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 2;

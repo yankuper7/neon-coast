@@ -72,10 +72,26 @@
     for (let i = 0; i < lots.length && PKGS.length < 10; i += step) PKGS.push({ x: lots[i].x + lots[i].w / 2, y: lots[i].y + lots[i].h / 2 });
     PKGS.push({ x: 56 * T, y: 9 * T }, { x: 56.3 * T, y: 33 * T }, { x: 56 * T, y: 52 * T }, { x: S.park.x + 250, y: S.park.y - 330 }, { x: 1.2 * T, y: 30 * T });
   }
-  // מזוודות למשימת האיסוף: רחבות וחניונים קרובים לתחנת המוניות, שאין בהם פלמינגו
-  const luggage = lots.map((d) => ({ x: d.x + d.w / 2, y: d.y + d.h / 2 }))
-    .filter((p) => !PKGS.some((k) => Math.hypot(k.x - p.x, k.y - p.y) < 60) && !M.insideB(p.x, p.y, 14))
-    .map((p) => ({ p, d: Math.hypot(p.x - S.taxi.x, p.y - S.taxi.y) })).filter((o) => o.d > 350 && o.d < 3200).sort((a, b) => a.d - b.d).filter((o, q) => q % 2 === 0).slice(0, 6).map((o) => o.p);
+  // מזוודות למשימת האיסוף: בשפת הרחבה או החניון, ממש ליד הכביש, במקום פנוי מעצים ומרכבים חונים –
+  // כך רואים אותן מהרחוב ואפשר לאסוף אותן בנסיעה, בלי להיתקע בין עצים ובניינים
+  function kerbSpot(d) {
+    let best = null, bs = 1e9;
+    for (let y = d.y + 10; y <= d.y + d.h - 10; y += 12) for (let x = d.x + 10; x <= d.x + d.w - 10; x += 12) {
+      const [i, j] = M.nearestRoad(x, y);
+      const rd = Math.hypot(Math.max(i * T - x, 0, x - (i + 1) * T), Math.max(j * T - y, 0, y - (j + 1) * T));
+      if (rd > 34 || M.insideB(x, y, 22) || M.connCount(M.conn(i, j)) > 2) continue;
+      let clear = 200;
+      for (const t of M.trees) { const q = Math.hypot(t.x - x, t.y - y); if (q < clear) clear = q; }
+      for (const ps of M.parkSpots) { const q = Math.hypot(ps.x - x, ps.y - y) - 16; if (q < clear) clear = q; }
+      if (clear < 40) continue;
+      const sc = rd - Math.min(clear, 90) * 0.15;
+      if (sc < bs) { bs = sc; best = { x, y }; }
+    }
+    return best;
+  }
+  const luggage = lots.map(kerbSpot).filter((p) => p && !PKGS.some((k) => Math.hypot(k.x - p.x, k.y - p.y) < 70))
+    .map((p) => ({ p, d: Math.hypot(p.x - S.taxi.x, p.y - S.taxi.y) })).filter((o) => o.d > 350 && o.d < 3000).sort((a, b) => a.d - b.d)
+    .reduce((out, o) => { if (out.length < 6 && out.every((q) => Math.hypot(q.x - o.p.x, q.y - o.p.y) > 420)) out.push(o.p); return out; }, []);
 
   const WHO = { rosa: { name: 'Aunt Rosa', icon: 'R', col: '#ffd23f' }, mickey: { name: 'Mickey Keys', icon: 'M', col: '#ff9d3d' }, lola: { name: 'Lola Neon', icon: 'L', col: '#ff7ac8' }, ziv: { name: 'Captain Ziv', icon: 'Z', col: '#5fe9ff' } };
 
@@ -89,8 +105,8 @@
       ],
     },
     {
-      id: 'shift', title: 'First Shift', by: 'rosa', start: S.taxi, reward: 350, requires: ['welcome'],
-      brief: 'Three passengers are waiting, and they are not patient. Take the yellow taxi, pick each one up and get them where they are going before the clock runs out. And mind the paintwork, okay?',
+      id: 'shift', title: 'First Shift', by: 'rosa', start: S.taxi, reward: 350, requires: ['welcome'], ease: 1.2,
+      brief: 'Three passengers are waiting. Take the yellow taxi, stop next to each one and drive them where they are going before the clock runs out. Follow the arrow and the line on your radar – and the faster you are, the bigger the bonus.',
       steps: [
         { t: 'spawn', type: 'taxi', at: { x: S.taxi.x - 70, y: S.taxi.y + 10 }, ang: 0 },
         { t: 'car', tag: true, text: 'Get into the yellow taxi' },
@@ -115,15 +131,16 @@
     },
     {
       id: 'souvenirs', title: 'Lost Luggage', by: 'rosa', start: S.taxi, reward: 800, requires: ['shift'],
-      brief: 'A tour bus dropped its whole luggage rack all over my side of town, and the tourists fly home tonight. Six suitcases, scattered around the lots and plazas near here. Grab them all before the clock runs out and bring them back to me.',
+      brief: 'A tour bus dropped its whole luggage rack all over my side of town, and the tourists fly home tonight. Six suitcases are lying by the roadside around here. Just drive over each one to scoop it up, then bring them all back to me before the clock runs out.',
       steps: [
-        { t: 'collect', pts: luggage, icon: '🧳', time: 'auto', text: 'Collect all six suitcases 🧳' },
+        { t: 'car', text: 'Get into any car' },
+        { t: 'collect', pts: luggage, icon: '🧳', time: 'auto', text: 'Drive over the six suitcases 🧳 by the roadside' },
         { t: 'goto', p: S.taxi, stop: true, add: 45, text: 'Bring the luggage back to Aunt Rosa' },
       ],
     },
     {
       id: 'tail', title: 'Eyes on the Courier', by: 'mickey', start: S.garage, reward: 1000, requires: ['delivery'],
-      brief: 'A purple truck leaves the Color Market every day with parts that should have been mine. Follow it to wherever they unload. Stay back – if the driver sees you in his mirror, or you lose him, it is over. When he parks, the truck is yours.',
+      brief: 'A purple truck leaves the Color Market every day with parts that should have been mine. Follow it to wherever they unload. Keep a few car lengths back: sit on his bumper and the 👀 meter fills up, fall too far behind and you lose him. When he parks, the truck is yours.',
       steps: [
         { t: 'spawn', type: 'van', at: courierFrom, lane: courierTo, color: '#8e6bbf', as: 'target' },
         { t: 'goto', p: courierFrom, r: 300, car: true, text: 'Find the purple truck in the Color Market' },
@@ -144,27 +161,31 @@
     },
     {
       id: 'derby', title: 'Bumper Cars', by: 'lola', start: S.club, reward: 1100, requires: ['race'],
-      brief: 'Three show-offs from out of town have been tearing up my street and scaring my guests. I want their cars off the road – permanently. Ram them until they smoke. Use something heavy, and get out of yours if it catches fire.',
+      brief: 'Three show-offs from out of town have been tearing up my street and scaring my guests. I want their cars off the road – permanently. Ram them until they burn. I parked a heavy pickup outside for you: the heavier your ride, the harder you hit. Get out if yours catches fire.',
       steps: [
-        { t: 'car', text: 'Get into a sturdy car' },
-        { t: 'smash', time: 210, targets: [{ type: 'muscle', color: '#ff5252', near: X(13, 6) }, { type: 'sports', color: '#ffe14d', near: X(12, 8) }, { type: 'muscle', color: '#3dff9e', near: X(11, 4) }], text: 'Wreck the three show-off cars' },
+        { t: 'spawn', type: 'pickup', at: { x: S.club.x - 70, y: S.club.y + 10 }, ang: 0, color: '#ff3fa4', as: 'spare' },
+        { t: 'car', text: 'Get into a heavy car – Lola\'s pink pickup is right here' },
+        { t: 'smash', time: 240, targets: [{ type: 'muscle', color: '#ff5252', near: X(13, 6) }, { type: 'sports', color: '#ffe14d', near: X(12, 8) }, { type: 'muscle', color: '#3dff9e', near: X(11, 4) }], text: 'Wreck the three show-off cars' },
       ],
     },
     {
       id: 'heat', title: 'Heat in the City', by: 'lola', start: S.club, reward: 1200, requires: ['derby'],
-      brief: 'We have a problem. Someone snitched on Mickey, and the police are looking for his driver – meaning you. They are already on their way. Lose them: get out of their sight, or find a spray shop 🎨 and change your color.',
+      brief: 'We have a problem. Someone snitched on Mickey, and the police are looking for his driver – meaning you. Take my pink car and go, they will be here any second. Lose them: break their line of sight and stay hidden until the stars fade, or get a new color at a spray shop 🎨. They are watching the one in Glass Towers, so head for Palm Heights – the line on your radar shows the way.',
       steps: [
+        { t: 'spawn', type: 'muscle', at: { x: S.club.x - 70, y: S.club.y + 10 }, ang: 0, color: '#ff3fa4', as: 'spare' },
+        { t: 'car', text: 'Get into a car – quick!' },
         { t: 'wanted', n: 3 },
-        { t: 'evade', text: 'Lose the police! (Get out of sight or drive into a spray shop 🎨)' },
+        { t: 'evade', block: 'spray', text: 'Lose the police! Hide until the stars fade, or reach the Palm Heights spray shop 🎨' },
       ],
     },
     {
       id: 'grandprix', title: 'Harbor Grand Prix', by: 'ziv', start: S.docks, reward: 2000, requires: ['heat'],
-      brief: 'Once a year the dock crews race a full lap of the city, and this year my money is on you. Three rivals, one lap, first across the line takes the pot. There is a white sports car waiting for you – or bring your own.',
+      brief: 'Once a year the dock crews race a full lap of the city, and this year my money is on you. Three rivals, one lap, first across the line takes the pot. The white race car outside is yours for the day. Line up on the grid and the countdown starts.',
       steps: [
-        { t: 'spawn', type: 'sports', at: { x: S.docks.x - 60, y: S.docks.y + 10 }, ang: Math.PI, color: '#f4f6f8', as: 'spare' },
-        { t: 'car', text: 'Get into a fast car' },
-        { t: 'rivals', route: gpRoute, rivals: [{ type: 'sports', color: '#ff5252', skill: 0.88 }, { type: 'muscle', color: '#ffe14d', skill: 0.93 }, { type: 'sports', color: '#9d5cff', skill: 0.97 }], text: 'Win the race! Drive through every gate' },
+        { t: 'spawn', type: 'sports', at: { x: S.docks.x - 60, y: S.docks.y + 10 }, ang: Math.PI, color: '#f4f6f8' },
+        { t: 'car', tag: true, text: 'Get into the white race car' },
+        { t: 'grid', route: gpRoute, text: 'Drive to the starting grid and stop on your spot – pole position!' },
+        { t: 'rivals', route: gpRoute, rivals: [{ type: 'sports', color: '#ff5252', skill: 0.76 }, { type: 'muscle', color: '#ffe14d', skill: 0.83 }, { type: 'sports', color: '#9d5cff', skill: 0.85 }], text: 'Win the race! Drive through every gate' },
       ],
     },
     {
@@ -200,18 +221,21 @@
   // ---------------- מנוע המשימות ----------------
   const immediate = { spawn: 1, ped: 1, wanted: 1 };
   let declined = null, sprayCd = 0, healCd = 0, startCd = 1.2; // startCd: הפסקה קצרה לפני התדריך הבא
+  let retry = null; // { def, t } – חלון קצר אחרי כישלון שבו אפשר להתחיל מחדש בלחיצה
   const isDone = (id) => G.done.includes(id);
   const available = (m) => !isDone(m.id) && m.requires.every(isDone);
   const storyDone = () => MISSIONS.filter((m) => isDone(m.id)).length;
   // אחרי כישלונות מקבלים קצת יותר זמן – כדי שאף אחד לא ייתקע
-  const timeMult = (def) => NC.diff().time * (1 + 0.12 * Math.min(3, G.fails[def.id] || 0));
-  const driveTime = (ax, ay, bx, by) => Math.max(16, M.roadDist(ax, ay, bx, by) / 185 + 14);
+  const timeMult = (def) => NC.diff().time * (def.ease || 1) * (1 + 0.12 * Math.min(3, G.fails[def.id] || 0));
+  // זמן נסיעה סביר לשחקן שעוד לא מכיר את העיר; מי שמהיר יותר מקבל בונוס על השניות שנשארו
+  const driveTime = (ax, ay, bx, by) => Math.max(22, M.roadDist(ax, ay, bx, by) / 150 + 18);
 
   function begin(def) {
     if (typeof def === 'number') def = MISSIONS[def]; else if (typeof def === 'string') def = byId[def];
     if (!def) return;
     const steps = def.job === 'trial' ? trialSteps(def) : def.steps;
-    G.mission = { def, id: def.id, steps, step: -1, timer: null, watch: null, tag: null, target: null, ped: null, stopT: 0, t0: G.time, cars: [], items: null, hud: '', spook: 0, farT: 0, count: 0, total: 0, mult: timeMult(def), gate: 0, finished: 0, go: 0, fares: 0, earned: 0, outT: 0 };
+    G.mission = { def, id: def.id, steps, step: -1, timer: null, watch: null, tag: null, target: null, ped: null, stopT: 0, t0: G.time, cars: [], items: null, hud: '', spook: 0, farT: 0, count: 0, total: 0, mult: timeMult(def), gate: 0, finished: 0, go: 0, fares: 0, earned: 0, outT: 0, saved: 0, warn: 0 };
+    retry = null;
     advance();
   }
   function cur() { return G.mission ? G.mission.steps[G.mission.step] : null; }
@@ -230,6 +254,7 @@
     ms.step++; ms.stopT = 0; ms.hud = '';
     if (ms.step >= steps.length) { pass(); return; }
     const s = steps[ms.step];
+    if (s.time != null && ms.timer > 0 && !def0(ms).job) ms.saved += ms.timer; // שניות שנחסכו בקטע הקודם
     if (s.time === 'auto') ms.timer = (s.t === 'collect' ? collectTime(s.pts, pp) : driveTime(pp.x, pp.y, s.p.x, s.p.y)) * ms.mult;
     else if (s.time != null) ms.timer = s.time * ms.mult;
     else if (s.add != null) { const pv = prevPoint(ms); ms.timer = (ms.timer || 0) + (s.add === 'gate' ? Math.hypot(s.p.x - pv.x, s.p.y - pv.y) / 240 + 0.15 : s.add === 'auto' ? driveTime(pp.x, pp.y, s.p.x, s.p.y) : s.add) * ms.mult; }
@@ -244,7 +269,7 @@
       ms.ped = W.makePed(s.at.x, s.at.y, { tag: true, shirt: '#ff3fa4' }); ms.ped.st = 'wait';
       advance(); return;
     }
-    if (s.t === 'wanted') { W.setWanted(s.n); advance(); return; }
+    if (s.t === 'wanted') { W.setWanted(s.n >= 3 && (G.fails[ms.id] || 0) >= 2 ? s.n - 1 : s.n); advance(); return; } // אחרי שני כישלונות המשטרה קצת פחות נחושה
     if (s.t === 'collect') { ms.items = s.pts.map((p) => ({ x: p.x, y: p.y, got: false })); ms.total = s.pts.length; ms.count = 0; }
     else if (s.t === 'tail') {
       const c = ms.target, to = s.to;
@@ -256,28 +281,33 @@
         const sp = straightNear(t.near.x + rand(-200, 200), t.near.y + rand(-200, 200)), l = laneSpot(sp, pp);
         G.cars = G.cars.filter((c) => Math.hypot(c.x - l.x, c.y - l.y) > 95 || c === G.player.car || c.tag);
         const c = W.makeCar(t.type, l.x, l.y, l.ang, { tag: 'enemy', color: t.color, driver: 'ai' });
-        c.ai = W.newAI(l.dir, false); c.ai.cruise = 200; c.hp = Math.min(c.hp, 80);
+        c.ai = W.newAI(l.dir, false); c.ai.cruise = 190; c.hp = Math.min(c.hp, 70);
         return c;
       });
       ms.total = ms.cars.length; ms.count = 0;
-    } else if (s.t === 'rivals') {
-      // שורת זינוק: לפני השער הראשון, עם הפנים אליו
-      const p0 = s.route[0], p1 = s.route[1], a = Math.atan2(p1.y - p0.y, p1.x - p0.x), ux = Math.cos(a), uy = Math.sin(a);
-      ms.cars = s.rivals.map((r, q) => {
-        const x = p0.x - ux * (150 + q * 74) + uy * (q % 2 ? 22 : -22), y = p0.y - uy * (150 + q * 74) - ux * (q % 2 ? 22 : -22);
+    } else if (s.t === 'grid') {
+      // שורת זינוק: היריבים מחכים לפני השער הראשון, והמקום של השחקן בראש – הספירה מתחילה רק כשהוא מגיע
+      const rv = steps[ms.step + 1], p0 = s.route[0], p1 = s.route[1], a = Math.atan2(p1.y - p0.y, p1.x - p0.x), ux = Math.cos(a), uy = Math.sin(a);
+      const slot = (dist, side) => ({ x: p0.x - ux * dist + uy * side, y: p0.y - uy * dist - ux * side });
+      ms.cars = rv.rivals.map((r, q) => {
+        const { x, y } = slot(214 + q * 78, q % 2 ? -22 : 22);
         G.cars = G.cars.filter((c) => Math.hypot(c.x - x, c.y - y) > 95 || c === G.player.car || c.tag);
         const c = W.makeCar(r.type, x, y, a, { tag: 'rival', color: r.color, driver: 'ai' });
         c.ai = W.newAI(0, false); c.ai.racer = { pts: s.route, idx: 0, skill: r.skill, base: r.skill, r: 85, hold: true, done: false };
         return c;
       });
-      ms.gate = 0; ms.finished = 0; ms.total = s.route.length; ms.go = 0;
+      ms.slot = slot(132, -22); ms.gridAng = a;
+      G.cars = G.cars.filter((c) => Math.hypot(c.x - ms.slot.x, c.y - ms.slot.y) > 95 || c === G.player.car || c.tag);
+    } else if (s.t === 'rivals') {
+      ms.gate = 0; ms.finished = 0; ms.total = s.route.length; ms.go = 0; ms.count = 0;
     }
     NC.ui.objective(s.text || '');
   }
+  const def0 = (ms) => ms.def;
   function collectTime(pts, from) { // סיור "השכן הקרוב" בין הנקודות
     const left = pts.slice(); let x = from.x, y = from.y, t = 0;
-    while (left.length) { let bi = 0, bd = 1e18; left.forEach((p, q) => { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; bi = q; } }); const p = left.splice(bi, 1)[0]; t += M.roadDist(x, y, p.x, p.y) / 190 + 7; x = p.x; y = p.y; }
-    return t + 12;
+    while (left.length) { let bi = 0, bd = 1e18; left.forEach((p, q) => { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; bi = q; } }); const p = left.splice(bi, 1)[0]; t += M.roadDist(x, y, p.x, p.y) / 140 + 10; x = p.x; y = p.y; }
+    return t + 15;
   }
   function trialSteps(def) {
     return [
@@ -301,13 +331,19 @@
     NC.ui.objective('');
     if (m.job === 'trial') { finishTrial(m, ms.watch); return; }
     const reward = Math.round(m.reward * NC.diff().pay / 10) * 10;
-    G.money += reward; G.stats.earned += reward;
-    if (!isDone(m.id)) G.done.push(m.id);
+    // בונוס מהירות: כמה דולרים על כל שנייה שנשארה על השעון, עד שליש מהפרס
+    const saved = ms.saved + (ms.timer > 0 ? ms.timer : 0), bonus = Math.min(Math.round(saved * 4 / 10) * 10, Math.round(reward * 0.34 / 10) * 10);
+    const first = !isDone(m.id), finale = first && storyDone() === MISSIONS.length - 1;
+    G.money += reward + bonus; G.stats.earned += reward + bonus;
+    if (first) G.done.push(m.id);
     delete G.fails[m.id];
-    NC.Sound.play('pass'); Fx.confetti(pp.x, pp.y, 60); NC.ui.buzz(80);
-    NC.ui.banner('Mission passed!', `${m.title} · +$${reward.toLocaleString('en-US')}`, 'pass', [`Time ${NC.fmtTime(secs)}`, `Story ${storyDone()}/${MISSIONS.length}`]);
-    if (storyDone() >= MISSIONS.length) setTimeout(() => NC.ui.isPlaying() && NC.ui.toast('🌴 You finished the story! The city is yours – taxi fares, time trials and flamingos are still waiting', 'good'), 5000);
-    else { const fresh = MISSIONS.filter((x) => available(x) && x.requires.includes(m.id)); if (fresh.length) setTimeout(() => NC.ui.isPlaying() && NC.ui.toast(`📍 New job from ${fresh.map((x) => x.who).filter((v, q, a) => a.indexOf(v) === q).join(' and ')}`), 4500); }
+    NC.Sound.play('pass'); if (bonus) NC.Sound.play('bonus'); Fx.confetti(pp.x, pp.y, 60); NC.ui.buzz(80);
+    const lines = [`Time ${NC.fmtTime(secs)}`, `Story ${storyDone()}/${MISSIONS.length}`];
+    if (bonus) lines.splice(1, 0, `⏱ Speed bonus +$${bonus}`);
+    NC.ui.banner('Mission passed!', `${m.title} · +$${reward.toLocaleString('en-US')}`, 'pass', lines);
+    if (finale) NC.ui.ending(4.2); // המשימה האחרונה: מסך הסיום
+    else if (storyDone() >= MISSIONS.length) { /* שחזור משימה אחרי סוף הסיפור */ }
+    else { const fresh = MISSIONS.filter((x) => available(x) && x.requires.includes(m.id)); if (fresh.length) setTimeout(() => NC.ui.isPlaying() && (NC.Sound.play('newjob'), NC.ui.toast(`📍 New job from ${fresh.map((x) => x.who).filter((v, q, a) => a.indexOf(v) === q).join(' and ')}`)), 4500); }
     NC.saveGame();
   }
   function finishTrial(m, t) {
@@ -321,7 +357,7 @@
     if (record) G.best[m.id] = { t: +t.toFixed(2), medal: now >= had ? medal : old.medal };
     else if (now > had) old.medal = medal;
     G.money += pay; G.stats.earned += pay; G.stats.jobs++;
-    NC.Sound.play(medal ? 'pass' : 'check'); if (medal) Fx.confetti(pp.x, pp.y, 40);
+    NC.Sound.play(medal ? 'medal' : 'check'); if (medal) Fx.confetti(pp.x, pp.y, 40);
     NC.ui.banner(medal ? MEDAL[medal][0] : 'Finished', `${m.title} · ${NC.fmtTime(t)}${pay ? ' · +$' + pay : ''}`, medal ? 'pass' : 'info', [record ? '★ New personal best' : `Best ${NC.fmtTime(old.t)}`, `🥇 ${NC.fmtTime(m.gold)}  🥈 ${NC.fmtTime(m.silver)}  🥉 ${NC.fmtTime(m.bronze)}`]);
     NC.saveGame();
   }
@@ -331,8 +367,10 @@
     if (m.job === 'taxi') { endTaxi(reason); return; }
     cleanup(); G.mission = null; declined = m.id; startCd = 4;
     if (!m.job) G.fails[m.id] = (G.fails[m.id] || 0) + 1;
+    retry = { def: m, t: 45 }; // אפשר לנסות שוב מיד, בלי לנסוע חזרה לנקודת הפתיחה
     NC.ui.objective('');
-    NC.ui.banner(m.job ? 'Run over' : 'Mission failed', reason, 'fail', !m.job && G.fails[m.id] ? ['You will get a little more time on the next try'] : null);
+    const help = m.job ? null : m.steps.some((q) => q.t === 'rivals') ? 'The rivals will be a touch slower next time' : m.steps.some((q) => q.time != null) ? 'You get a little more time next try' : G.fails[m.id] >= 2 && m.steps.some((q) => q.t === 'wanted' && q.n >= 3) ? 'The police will be a little less eager next time' : null;
+    NC.ui.banner(m.job ? 'Run over' : 'Mission failed', reason, 'fail', help ? [NC.ui.retryHint(), help] : [NC.ui.retryHint()]);
     if (!G.dead) NC.Sound.play('fail');
   }
 
@@ -380,7 +418,7 @@
       if (G.pkgs.includes(i)) continue;
       if (Math.abs(PKGS[i].x - pp.x) < 42 && Math.abs(PKGS[i].y - pp.y) < 42) {
         G.pkgs.push(i); G.money += 150; G.stats.earned += 150;
-        NC.Sound.play('pickup'); Fx.sparkle(PKGS[i].x, PKGS[i].y, '#ffe14d', 18);
+        NC.Sound.play('flamingo'); Fx.sparkle(PKGS[i].x, PKGS[i].y, '#ffe14d', 18);
         W.addFloater(pp.x, pp.y - 30, '+$150', '#ffe14d');
         NC.ui.toast(`🦩 Golden flamingo ${G.pkgs.length}/${PKGS.length}`, 'good');
         if (G.pkgs.length === PKGS.length) { G.money += 2000; G.stats.earned += 2000; Fx.confetti(pp.x, pp.y, 70); NC.ui.toast('🦩 You found every flamingo! Bonus $2,000', 'good'); }
@@ -389,16 +427,18 @@
     }
     // מוסך ריסוס: המחיר עולה עם מספר הכוכבים
     if (sprayCd > 0) sprayCd -= dt;
-    if (P.car && sp < 60 && sprayCd <= 0) {
+    if (P.car && sp < (G.wanted ? 130 : 60) && sprayCd <= 0) { // עם משטרה על הזנב מספיק להאט בכניסה
       for (const k of ['spray', 'spray2']) {
-        if (Math.hypot(S[k].x - pp.x, S[k].y - pp.y) > 55) continue;
+        if (Math.hypot(S[k].x - pp.x, S[k].y - pp.y) > (G.wanted ? 64 : 55)) continue;
         const c = P.car, price = 100 + 60 * G.wanted;
         if (!G.wanted && c.hp >= c.d.hp) continue;
         sprayCd = 4;
-        if (G.money < price) { NC.ui.toast(`🎨 Spray and repair costs $${price} – you do not have enough`, 'warn'); break; }
+        const st = cur();
+        if (st && st.block === k) { NC.ui.toast('🚫 The police are watching this shop – use the other one', 'warn'); NC.Sound.play('deny'); break; }
+        if (G.money < price) { NC.ui.toast(`🎨 Spray and repair costs $${price} – you do not have enough`, 'warn'); NC.Sound.play('deny'); break; }
         G.money -= price; c.hp = c.d.hp; c.burnT = 0;
         if (c.type !== 'police' && c.type !== 'taxi') c.color = pick(['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#ff7eb6', '#ecf0f1'].filter((x) => x !== c.color));
-        NC.Sound.play('spray');
+        NC.Sound.play('spray'); NC.Sound.play('repair'); NC.Sound.play('pay');
         for (let q = 0; q < 16; q++) { const p = Fx.add(c.x + rand(-26, 26), c.y + rand(-16, 16), rand(-30, 30), rand(-30, 30), rand(0.5, 1), rand(5, 9), c.color, 14, 0.5, false, 0); p.drag = 2; }
         const had = G.wanted;
         W.clearWanted(false);
@@ -410,8 +450,8 @@
     if (healCd > 0) healCd -= dt;
     if (!P.car && P.hp < 85 && healCd <= 0 && !G.wanted && Math.hypot(S.hospital.x - pp.x, S.hospital.y - pp.y) < 50) {
       healCd = 5;
-      if (G.money < 50) NC.ui.toast('🏥 A check-up costs $50 – you do not have enough', 'warn');
-      else { G.money -= 50; P.hp = 100; NC.Sound.play('pickup'); Fx.sparkle(pp.x, pp.y, '#ff6b81', 14); NC.ui.toast('🏥 All patched up (-$50)', 'good'); }
+      if (G.money < 50) { NC.ui.toast('🏥 A check-up costs $50 – you do not have enough', 'warn'); NC.Sound.play('deny'); }
+      else { G.money -= 50; P.hp = 100; NC.Sound.play('heal'); NC.Sound.play('pay'); Fx.sparkle(pp.x, pp.y, '#ff6b81', 14); NC.ui.toast('🏥 All patched up (-$50)', 'good'); }
     }
   }
 
@@ -420,6 +460,7 @@
     services(dt, P, pp, sp);
     const ms = G.mission;
     if (startCd > 0) startCd -= dt;
+    if (retry && !G.dead) { retry.t -= dt; if (retry.t <= 0) retry = null; }
     if (!ms) {
       if (G.dead) return;
       // נקודות פתיחה של משימות ושל מרוצי זמן
@@ -427,9 +468,9 @@
       for (const m of ALL) {
         if (!(m.job ? m.requires.every(isDone) : available(m))) continue;
         const d = Math.hypot(m.start.x - pp.x, m.start.y - pp.y);
-        if (d >= 48 || sp >= 70 || declined === m.id || startCd > 0) continue;
+        if (d >= 48 || (P.car && sp >= 70) || declined === m.id || startCd > 0) continue; // ברגל מספיק להיכנס לעיגול; ברכב צריך להאט
         if (m.job && !P.car) continue;
-        if (G.wanted) { declined = m.id; NC.ui.toast('Lose the police first, then we talk', 'warn'); break; }
+        if (G.wanted) { declined = m.id; NC.ui.toast('Lose the police first, then we talk', 'warn'); NC.Sound.play('deny'); break; }
         NC.ui.brief(m); return;
       }
       return;
@@ -441,7 +482,11 @@
     if (def.job === 'taxi') { if (P.car !== ms.tag) { ms.outT += dt; if (ms.outT > 9) { endTaxi('You left the taxi'); return; } } else ms.outT = 0; }
     if (s.fragile && ms.tag && ms.tag.hp < ms.tag.d.hp * s.fragile) { fail('The cargo was smashed to pieces'); return; }
     if (s.t === 'car') { if (P.car && (!s.tag || P.car === ms.tag)) advance(); }
-    else if (s.t === 'evade') { if (!G.wanted) advance(); }
+    else if (s.t === 'evade') {
+      if (!G.wanted) { advance(); return; }
+      const left = Math.max(0, Math.ceil(W.evadeTime() - G.hideT));
+      ms.hud = G.hideT > 0.6 ? `🙈 Out of sight – stay hidden ${left}s` : '🚨 They can see you – break the line of sight';
+    }
     else if (s.t === 'goto') {
       const okCar = s.car === 'tag' ? P.car === ms.tag : s.car ? !!P.car : true;
       const d = Math.hypot(s.p.x - pp.x, s.p.y - pp.y);
@@ -450,7 +495,7 @@
         // עם משטרה על הזנב קשה לעצור לגמרי – מספיק להאט
         if (s.stop && sp > (G.wanted ? 95 : 45)) ms.stopT = 0; else ms.stopT += dt;
         if (!s.stop || ms.stopT > (G.wanted ? 0.3 : 0.5)) {
-          if (s.pickup && ms.ped) { G.peds = G.peds.filter((p) => p !== ms.ped); ms.ped = null; NC.Sound.play('door'); }
+          if (s.pickup && ms.ped) { G.peds = G.peds.filter((p) => p !== ms.ped); ms.ped = null; NC.Sound.play('door'); NC.Sound.play('passenger'); }
           if (s.drop) {
             const p = W.makePed(pp.x + 30, pp.y + 30, { shirt: '#ff3fa4' }); p.st = 'return';
             let cash = s.tip || 0;
@@ -466,7 +511,8 @@
       if (def.job === 'taxi' && G.mission === ms) ms.hud = `🚕 Fares ${ms.fares} · $${ms.earned}`;
     } else if (s.t === 'collect') {
       for (const it of ms.items) {
-        if (it.got || Math.abs(it.x - pp.x) > 44 || Math.abs(it.y - pp.y) > 44) continue;
+        const reach = P.car ? 64 : 44; // מהרכב אוספים גם בנסיעה צמודה למדרכה
+        if (it.got || Math.abs(it.x - pp.x) > reach || Math.abs(it.y - pp.y) > reach) continue;
         it.got = true; ms.count++;
         NC.Sound.play('pickup'); Fx.sparkle(it.x, it.y, '#ffe14d', 12); W.addFloater(it.x, it.y - 24, `${ms.count}/${ms.total}`, '#ffe14d');
       }
@@ -480,11 +526,12 @@
       ms.go += dt; // כמה שניות חסד בתחילת המעקב
       // הנהג חושד רק במי שנצמד אליו מאחור (רואה במראה) – לא במי שהוא חולף על פניו
       const behind = (pp.x - c.x) * Math.cos(c.ang) + (pp.y - c.y) * Math.sin(c.ang) < 20;
-      if (ms.go < 3 || !behind) ms.spook = Math.max(0, ms.spook - dt * 0.22); else if (d < 150) ms.spook += dt * 0.42; else if (d < 230) ms.spook += dt * 0.1; else ms.spook = Math.max(0, ms.spook - dt * 0.22);
+      if (ms.go < 3 || !behind) ms.spook = Math.max(0, ms.spook - dt * 0.3); else if (d < 150) ms.spook += dt * 0.34; else if (d < 220) ms.spook += dt * 0.07; else ms.spook = Math.max(0, ms.spook - dt * 0.3);
       if (d > 760) ms.farT += dt; else ms.farT = Math.max(0, ms.farT - dt * 2);
       if (ms.spook >= 1) { fail('The driver spotted you'); return; }
       if (ms.farT > 6) { fail('You lost the truck'); return; }
       const bar = Math.round(ms.spook * 5);
+      if (ms.go >= 3 && (d > 760 || (d < 150 && behind))) NC.Sound.play('warn'); // קרוב מדי או רחוק מדי
       ms.hud = d > 760 ? '⚠️ Too far – catch up!' : d < 150 && behind ? `👀 Too close! ${'▮'.repeat(bar)}${'▯'.repeat(5 - bar)}` : `👀 ${'▮'.repeat(bar)}${'▯'.repeat(5 - bar)} · ${Math.round(d / 10)} m`;
       if (Math.hypot(c.x - s.to.x, c.y - s.to.y) < 150) { // הגיע ליעד: חונה, והנהג הולך
         W.ejectDriver(c, false); c.driver = null; c.hb = true; c.tag = true; ms.tag = c; ms.target = null;
@@ -497,9 +544,13 @@
         alive++;
       }
       const got = ms.total - alive;
-      if (got > ms.count) { ms.count = got; NC.Sound.play('check'); if (alive) NC.ui.toast(`💥 ${got}/${ms.total} wrecked`, 'good'); }
+      if (got > ms.count) { ms.count = got; NC.Sound.play('wreck'); if (alive) NC.ui.toast(`💥 ${got}/${ms.total} wrecked`, 'good'); }
       ms.hud = `💥 ${ms.count}/${ms.total}`;
       if (!alive) advance();
+    } else if (s.t === 'grid') {
+      const d = Math.hypot(ms.slot.x - pp.x, ms.slot.y - pp.y);
+      if (P.car && (!ms.tag || P.car === ms.tag) && d < 46 && sp < 45) ms.stopT += dt; else ms.stopT = 0;
+      if (ms.stopT > 0.4) advance();
     } else if (s.t === 'rivals') {
       const pts = s.route, need = ms.need || (NC.settings.difficulty === 'easy' ? 2 : 1);
       // ספירה לאחור
@@ -523,7 +574,7 @@
         if (R.idx > ms.gate || (R.idx === ms.gate && rd < pd)) ahead++;
         // גומייה עדינה: מי שברח רחוק מאט, מי שנשאר מאחור מקבל דחיפה
         const gap = R.idx - ms.gate;
-        R.skill = R.base * (gap >= 3 ? 0.84 : gap <= -3 ? 1.06 : 1); c.boost = gap <= -3 ? 1.08 : 1;
+        R.skill = R.base * (gap >= 3 ? 0.78 : gap >= 2 ? 0.88 : gap <= -3 ? 1.06 : 1) * (1 - 0.05 * Math.min(3, G.fails[ms.id] || 0)); c.boost = gap <= -3 ? 1.08 : 1; // אחרי כישלונות היריבים מעט איטיים יותר
       }
       if (ms.finished >= need) { fail(need > 1 ? 'Two rivals beat you to the line' : 'A rival won the race'); return; }
       if (P.car && ms.go >= 3 && ms.gate < pts.length && pd < 85) {
@@ -532,6 +583,52 @@
       }
       ms.hud = `🏁 P${ahead + 1}/${ms.cars.length + 1} · Gate ${ms.gate}/${pts.length}`;
     }
+  }
+
+  // הרכב הפנוי הקרוב ביותר (בלי נהג) – כדי להראות לשחקן לאן ללכת כשצריך "רכב כלשהו"
+  function freeCar(ms) {
+    if (ms && ms.spare && !ms.spare.dead && !ms.spare.gone && !(ms.spare.burnT > 0)) return ms.spare;
+    const P = G.player; let best = null, bd = 900;
+    for (const c of G.active) { if (c.dead || c.burnT > 0 || c.ai || c.block || c.type === 'police') continue; const d = Math.hypot(c.x - P.x, c.y - P.y); if (d < bd) { bd = d; best = c; } }
+    return best;
+  }
+  // ניווט: מסלול הכבישים מהשחקן אל היעד הנוכחי (למכ"ם ולחץ הכיוון)
+  const gpsBuf = new Int16Array(N * N);
+  let gpsKey = '', gpsT = -1, gpsPath = null;
+  function gps() {
+    if (G.time >= gpsT && G.time - gpsT < 0.25) return gpsPath;
+    gpsT = G.time; gpsPath = null;
+    const tg = target(); if (!tg) return null;
+    const pp = W.playerPos(), D = W.DIRS;
+    if (Math.hypot(tg.x - pp.x, tg.y - pp.y) < 230) return null;
+    const key = Math.round(tg.x / 30) + ':' + Math.round(tg.y / 30);
+    if (key !== gpsKey) { M.fieldFrom(tg.x, tg.y, gpsBuf); gpsKey = key; }
+    let [i, j] = M.nearestRoad(pp.x, pp.y), pd = -1, guard = 0;
+    const pts = [{ x: pp.x, y: pp.y }];
+    while (gpsBuf[M.idx(i, j)] > 0 && guard++ < 400) {
+      const cur = gpsBuf[M.idx(i, j)]; let best = -1;
+      for (const k of [pd, 0, 1, 2, 3]) { if (k < 0) continue; const ni = i + D[k][0], nj = j + D[k][1]; if (M.isRoad(ni, nj) && gpsBuf[M.idx(ni, nj)] === cur - 1) { best = k; break; } }
+      if (best < 0) break;
+      if (best !== pd && guard > 1) pts.push({ x: (i + 0.5) * T, y: (j + 0.5) * T });
+      i += D[best][0]; j += D[best][1]; pd = best;
+    }
+    pts.push({ x: (i + 0.5) * T, y: (j + 0.5) * T }, { x: tg.x, y: tg.y });
+    let len = 0; for (let q = 1; q < pts.length; q++) len += Math.hypot(pts[q].x - pts[q - 1].x, pts[q].y - pts[q - 1].y);
+    gpsPath = { pts, col: tg.col || null, kind: tg.kind, len };
+    return gpsPath;
+  }
+  // התחלה מחדש של משימה שנכשלה: חוזרים לנקודת הפתיחה (עם הרכב, אם המשימה לא מספקת רכב משלה)
+  function doRetry() {
+    if (!retry || G.mission || G.dead) return;
+    const m = retry.def, P = G.player; retry = null;
+    const own = m.steps && m.steps.some((q) => q.t === 'spawn' && !q.as);
+    let ang = P.car ? P.car.ang : P.ang;
+    if (m.job === 'trial') ang = Math.atan2(m.route[0].y - m.start.y, m.route[0].x - m.start.x);
+    NC.ui.fade(); NC.Sound.play('retry');
+    W.teleport(m.start.x, m.start.y, ang, !own);
+    declined = null; startCd = 0;
+    if (m.job && !P.car) { NC.ui.toast('🏁 Get a car and drive onto the flag to try again'); return; }
+    NC.ui.brief(m);
   }
 
   // נקודות לציור ולמכ"ם
@@ -548,11 +645,13 @@
       if (!s) return out;
       if (s.t === 'goto') out.push({ x: s.p.x, y: s.p.y, kind: s.race ? 'check' : 'target', r: s.r || 58 });
       if (s.t === 'car' && ms.tag && s.tag) out.push({ x: ms.tag.x, y: ms.tag.y, kind: 'car' });
+      if (s.t === 'car' && !s.tag && !G.player.car) { const c = freeCar(ms); if (c) out.push({ x: c.x, y: c.y, kind: 'car' }); }
       if (s.t === 'goto' && s.car === 'tag' && G.player.car !== ms.tag && ms.tag) out.push({ x: ms.tag.x, y: ms.tag.y, kind: 'car' });
-      if (s.t === 'evade') { out.push({ x: S.spray.x, y: S.spray.y, kind: 'spray' }, { x: S.spray2.x, y: S.spray2.y, kind: 'spray' }); }
+      if (s.t === 'evade') { for (const k of ['spray', 'spray2']) if (s.block !== k) out.push({ x: S[k].x, y: S[k].y, kind: 'spray' }); }
       if (s.t === 'collect') for (const it of ms.items) if (!it.got) out.push({ x: it.x, y: it.y, kind: 'item', icon: s.icon });
       if (s.t === 'tail' && ms.target) out.push({ x: ms.target.x, y: ms.target.y, kind: 'car' });
       if (s.t === 'smash') for (const c of ms.cars) if (!c.dead && !c.gone && !c.burnT) out.push({ x: c.x, y: c.y, kind: 'enemy' });
+      if (s.t === 'grid') { out.push({ x: ms.slot.x, y: ms.slot.y, kind: 'target', r: 40 }); for (const c of ms.cars) out.push({ x: c.x, y: c.y, kind: 'rival' }); }
       if (s.t === 'rivals') {
         if (ms.gate < s.route.length) out.push({ x: s.route[ms.gate].x, y: s.route[ms.gate].y, kind: 'check', r: 85 });
         if (ms.gate + 1 < s.route.length) out.push({ x: s.route[ms.gate + 1].x, y: s.route[ms.gate + 1].y, kind: 'next', r: 85 });
@@ -577,21 +676,29 @@
   }
 
   NC.mission = {
-    begin, update, fail, markers, target, cur, curText, pathGates,
-    reset() { declined = null; sprayCd = 0; healCd = 0; startCd = 1.2; },
+    begin, update, fail, markers, target, cur, curText, pathGates, gps,
+    reset() { declined = null; sprayCd = 0; healCd = 0; startCd = 1.2; retry = null; gpsT = -1; gpsPath = null; },
+    storyComplete: () => storyDone() >= MISSIONS.length,
     decline(def) { if (def && def.id) declined = def.id; startCd = 0.5; },
     onEnterCar() {}, onExitCar() {},
     onCarDestroyed() {},
     // לממשק: שעון, שורת מצב, פעולה לפי הקשר, התקדמות
     clock() { const ms = G.mission; if (!ms) return null; if (ms.watch != null) return { v: ms.watch, up: true, low: false }; if (ms.timer != null) return { v: ms.timer, up: false, low: ms.timer <= 10 }; return null; },
-    hud() { return G.mission ? G.mission.hud : ''; },
+    hud() {
+      if (G.mission && G.mission.hud) return G.mission.hud;
+      // גם בלי משימה: כמה זמן עוד צריך להסתתר מהמשטרה
+      if (G.wanted && !G.dead && G.hideT > 0.6) return `🙈 Out of sight – stay hidden ${Math.max(0, Math.ceil(W.evadeTime() - G.hideT))}s`;
+      return '';
+    },
     prompt() {
       const c = G.player.car;
       if (G.mission) return G.mission.def.job === 'taxi' ? { key: 'T', label: 'End taxi shift', icon: '🛑' } : null;
-      if (c && c.type === 'taxi' && !G.wanted && !G.dead) return { key: 'T', label: 'Start taxi fares', icon: '🚕' };
+      if (G.dead) return null;
+      if (retry) return { key: 'T', label: `Retry “${retry.def.title}”`, icon: '↻' };
+      if (c && c.type === 'taxi' && !G.wanted) return { key: 'T', label: 'Start taxi fares', icon: '🚕' };
       return null;
     },
-    action() { const ms = G.mission; if (ms && ms.def.job === 'taxi') endTaxi('You clocked off'); else startTaxi(); },
+    action() { const ms = G.mission; if (ms && ms.def.job === 'taxi') endTaxi('You clocked off'); else if (retry && !ms) doRetry(); else startTaxi(); },
     progress() {
       const done = storyDone(), medals = TRIALS.filter((t) => G.best[t.id] && G.best[t.id].medal).length;
       const pct = Math.round((done / MISSIONS.length * 0.6 + G.pkgs.length / PKGS.length * 0.25 + medals / TRIALS.length * 0.15) * 100);
@@ -601,7 +708,8 @@
     briefInfo(def) { // טקסטים למסך התדריך
       if (def.job === 'trial') { const b = G.best[def.id]; return { text: `${def.text} Drive through the first gate and the clock starts.`, reward: `🥇 ${NC.fmtTime(def.gold)} · 🥈 ${NC.fmtTime(def.silver)} · 🥉 ${NC.fmtTime(def.bronze)}`, note: b ? `Your best: ${NC.fmtTime(b.t)}${b.medal ? ' ' + MEDAL[b.medal][0] : ''}` : 'No time set yet' }; }
       const f = G.fails[def.id] || 0;
-      return { text: def.brief, reward: '$' + (Math.round(def.reward * NC.diff().pay / 10) * 10).toLocaleString('en-US'), note: f ? `Attempt ${f + 1} – you get ${Math.round(Math.min(3, f) * 12)}% extra time` : '' };
+      const cops = f >= 2 && def.steps.some((q) => q.t === 'wanted' && q.n >= 3), timed = def.steps.some((q) => q.time != null);
+      return { text: def.brief, reward: '$' + (Math.round(def.reward * NC.diff().pay / 10) * 10).toLocaleString('en-US'), note: f ? `Attempt ${f + 1}` + (timed ? ` – you get ${Math.round(Math.min(3, f) * 12)}% extra time` : '') + (cops ? ' – the police will be a little less eager' : '') : '' };
     },
   };
 })();

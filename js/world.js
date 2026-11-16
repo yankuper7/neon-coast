@@ -44,7 +44,7 @@
       money: save ? save.money : 50, done: save && Array.isArray(save.done) ? save.done.slice() : [], pkgs: save && Array.isArray(save.pkgs) ? save.pkgs.slice() : [],
       playTime: save ? save.playTime || 0 : 0, stats: Object.assign(newStats(), save && save.stats), best: Object.assign({}, save && save.best), fails: Object.assign({}, save && save.fails),
       player: { x: px, y: py, ang: pang, vx: 0, vy: 0, hp: save && save.hp > 5 ? Math.min(100, save.hp) : 100, car: null, walk: 0, stun: 0 },
-      shake: 0, dead: null, mission: null, starFlash: 0, hurtFlash: 0, spawnT: 0, attract: false, lastCrash: 0,
+      shake: 0, dead: null, mission: null, starFlash: 0, hurtFlash: 0, spawnT: 0, attract: false, lastCrash: 0, ended: !!(save && save.ended),
     });
     for (const s of M.parkSpots) makeCar(pick(['compact', 'sedan', 'sedan', 'pickup', 'sports', 'van', 'compact', 'muscle']), s.x, s.y, s.ang, { parked: true });
     // רכב ראשון ליד הבית
@@ -66,7 +66,7 @@
       money: Math.floor(G.money), done: G.done.slice(), pkgs: G.pkgs.slice(), playTime: Math.round(G.playTime), clock: +G.clock.toFixed(2), day: G.day,
       weather: Wx.serialize(), pos: { x: Math.round(P.x), y: Math.round(P.y), ang: +P.ang.toFixed(2) }, hp: Math.round(P.hp),
       car: c && !c.dead && !c.burnT && !c.tag ? { type: c.type, color: c.color, hp: Math.round(c.hp) } : null,
-      stats: G.stats, best: G.best, fails: G.fails,
+      stats: G.stats, best: G.best, fails: G.fails, ended: !!G.ended,
     };
   }
 
@@ -140,7 +140,7 @@
 
   const nearPlayer = (x, y) => Math.abs(x - G.player.x) < 900 && Math.abs(y - G.player.y) < 700;
   function impactFx(c, x, y, impact) {
-    if (impact < 110) return;
+    if (impact < 110) { if (impact > 45 && G.player.car === c) NC.Sound.play('bump', clamp(impact / 110, 0.4, 1), x); return; } // נגיעה קלה
     const P = G.player;
     if (nearPlayer(c.x, c.y)) NC.Sound.play('crash', clamp(impact / 400, 0.3, 1), c.x);
     Fx.sparks(x, y, Math.min(14, Math.round(impact / 28)), 120 + impact * 0.7);
@@ -157,7 +157,7 @@
     if (c.hp <= 0 && !c.burnT) {
       c.hp = 0; c.burnT = 4.5;
       if (c.driver === 'ai' || c.ai) ejectDriver(c, true);
-      if (G.player.car === c) NC.ui.toast('🔥 The car is on fire! Get out!', 'warn');
+      if (G.player.car === c) { NC.ui.toast('🔥 The car is on fire! Get out!', 'warn'); NC.Sound.play('alarm'); }
     } else if (c.hp < c.d.hp * 0.3 && c.driver === 'ai' && !c.tag && !(c.ai && (c.ai.cop || c.ai.racer)) && Math.random() < 0.4) ejectDriver(c, true);
   }
 
@@ -182,6 +182,7 @@
           } else { nx = dx / d; ny = dy / d; pen = r - d; }
           const imp = bump(c, nx, ny, pen, k, 0.2);
           if (imp > 90) { damageCar(c, (imp - 90) * 0.085 * dm); impactFx(c, px, py, imp); if (mine && imp > 260) hurtPlayer((imp - 260) * 0.04); }
+          else if (mine && imp > 45) impactFx(c, px, py, imp);
           circles(c, CX, CY);
         }
       }
@@ -192,6 +193,7 @@
           const d = Math.sqrt(d2);
           const imp = bump(c, dx / d, dy / d, rr2 - d, k, 0.15);
           if (imp > 90) { damageCar(c, (imp - 90) * 0.07 * dm); impactFx(c, t.x, t.y, imp); t.shake = 0.5; }
+          if (imp > 40 && nearPlayer(t.x, t.y)) NC.Sound.play('rustle', clamp(imp / 200, 0.4, 1), t.x);
           circles(c, CX, CY);
         }
       }
@@ -222,9 +224,14 @@
     a.ang += clamp((Math.cos(a.ang) * oa * bm - Math.sin(a.ang) * oa * bn) * imp * 0.00003 * (mb / tot) * 2, -0.3, 0.3);
     b.ang -= clamp((Math.cos(b.ang) * ob * bm - Math.sin(b.ang) * ob * bn) * imp * 0.00003 * (ma / tot) * 2, -0.3, 0.3);
     a.parked = b.parked = false;
+    if (imp > 45 && imp <= 80 && (G.player.car === a || G.player.car === b)) impactFx(G.player.car, (a.x + b.x) / 2, (a.y + b.y) / 2, imp);
     if (imp > 80) {
       const P = G.player, mine = P.car === a || P.car === b, dm = NC.diff().dmg;
-      damageCar(a, (imp - 80) * 0.07 * (mb / tot) * 2 * (P.car === a ? dm : 1)); damageCar(b, (imp - 80) * 0.07 * (ma / tot) * 2 * (P.car === b ? dm : 1));
+      // ניידת שנוגחת בשחקן מזיקה לרכב שלו רק חצי – אחרת מרדף נגמר תוך שניות ברכב שרוף
+      const copHit = mine && (P.car === a ? b : a).type === 'police' && !!((P.car === a ? b : a).ai && (P.car === a ? b : a).ai.cop) ? 0.5 : 1;
+      // רכבי המטרה במשימת ההריסה נפגעים יותר מנגיחות השחקן – שלא יהפוך למרדף ארוך ומייגע
+      const ea = mine && a.tag === 'enemy' ? 1.6 : 1, eb = mine && b.tag === 'enemy' ? 1.6 : 1;
+      damageCar(a, (imp - 80) * 0.07 * (mb / tot) * 2 * (P.car === a ? dm * copHit : ea)); damageCar(b, (imp - 80) * 0.07 * (ma / tot) * 2 * (P.car === b ? dm * copHit : eb));
       impactFx(mine ? P.car : a, (a.x + b.x) / 2, (a.y + b.y) / 2, imp);
       if (mine) {
         const other = P.car === a ? b : a;
@@ -233,7 +240,7 @@
         if (imp > 260) hurtPlayer((imp - 260) * 0.03);
         const copCar = other.type === 'police' && (other.ai || other.block);
         const iRammed = (P.car === a ? sa : sb) >= (P.car === a ? sb : sa) * 0.9; // ניידת שנגחה בשחקן אינה עבירה שלו
-        if (copCar && imp > 140 && iRammed) crime(G.wanted < 2 ? 2 - G.wanted : imp > 300 && G.wanted < 4 ? 1 : 0);
+        if (copCar && imp > 140 && iRammed) crime(G.wanted < 1 ? (imp > 260 ? 2 : 1) : G.wanted < 2 ? 1 : imp > 300 && G.wanted < 3 ? 1 : 0); // נגיעה קלה בניידת = כוכב אחד, נגיחה של ממש = שניים; התנגשויות במרדף לא מעלות מעבר לשלושה
         else if (!copCar && !other.tag && imp > 190 && G.wanted === 0 && G.patrolNear) crime(1); // נהיגה פרועה מול ניידת
         if (other.ai && !other.ai.cop && imp > 150) other.ai.panicT = 6;
         if (imp > 230) for (const q of G.peds) if (Math.abs(q.x - a.x) < 230 && Math.abs(q.y - a.y) < 230) fleePed(q, a.x, a.y);
@@ -292,11 +299,13 @@
   function fleePed(p, fromX, fromY, secs) {
     if (p.st === 'down' || p.tag || p.cop) return;
     const d = Math.hypot(p.x - fromX, p.y - fromY) || 1;
+    if (p.st !== 'flee' && !G.attract && Math.random() < 0.5 && nearPlayer(p.x, p.y)) NC.Sound.play('yelp', 0.7, p.x);
     p.st = 'flee'; p.t = secs || rand(2.5, 4.5); p.fx = (p.x - fromX) / d; p.fy = (p.y - fromY) / d;
   }
   function knockPed(p, vx, vy) {
     if (p.st === 'down') return;
     p.st = 'down'; p.t = p.cop ? 2 : 2.8; p.vx = vx; p.vy = vy; p.ang = Math.atan2(vy, vx);
+    if (!G.attract && nearPlayer(p.x, p.y)) NC.Sound.play('yelp', 1, p.x);
     for (let i = 0; i < 5; i++) addPart(p.x, p.y, rand(-70, 70), rand(-70, 70), 0.5, 3, '#ffffff', 0, 0.8);
   }
   function pushOutOfBuildings(o, r) {
@@ -539,7 +548,7 @@
     const nx = pts[R.idx + 1];
     if (nx) corner = Math.abs(angDiff(Math.atan2(nx.y - p.y, nx.x - p.x), Math.atan2(dy, dx)));
     else corner = 1.6;
-    const vGate = corner > 1 ? 150 : corner > 0.4 ? 230 : 999;
+    const vGate = (corner > 1 ? 150 : corner > 0.4 ? 230 : 999) * Math.min(1, R.skill + 0.06); // נהג חלש יותר גם זהיר יותר בפניות
     let limit = Math.min(c.d.max * R.skill, Math.sqrt(vGate * vGate + 2 * 560 * Math.max(0, dist - 40)));
     const diff = angDiff(Math.atan2(dy, dx), c.ang);
     if (Math.abs(diff) > 0.7) limit = Math.min(limit, 170);
@@ -589,7 +598,8 @@
     c.hb = false;
     if (a.revT > 0) { a.revT -= dt; c.thr = -1; c.steer = diff > 0 ? -1 : 1; return; }
     c.steer = clamp(diff * 2.6, -1, 1);
-    const ram = G.wanted >= 3 && !!P.car && seen; // לא דורסים שחקן שהולך ברגל
+    // עד שלושה כוכבים הניידות רודפות וחוסמות; נגיחות של ממש מתחילות בארבעה (ברמת "קשה" – כבר בשלושה). לא דורסים שחקן שהולך ברגל
+    const ram = G.wanted >= (NC.diff().cops > 1 ? 3 : 4) && !!P.car && seen;
     if (dist < 150 && !ram) c.thr = c.speed > playerSpeed() + 50 ? -0.7 : dist < 70 ? (c.speed > 20 ? -1 : 0) : 0.6;
     else if (Math.abs(diff) > 1.0 && c.speed > 170) { c.thr = -0.6; c.hb = Math.abs(diff) > 1.7; }
     else c.thr = c.speed > c.d.max * (ram ? 1 : 0.85) ? 0 : 1;
@@ -606,7 +616,7 @@
       if (G.wanted >= 3 && sp > 150 && n < 28 && ((x - pp.x) * vx + (y - pp.y) * vy) / (d * sp) < 0.2) continue;
       if (G.cars.some((o) => Math.abs(o.x - x) < 100 && Math.abs(o.y - y) < 100)) continue;
       const c = makeCar('police', x, y, Math.atan2(pp.y - y, pp.x - x), { driver: 'ai' });
-      c.ai = newAI(0, true);
+      c.ai = newAI(0, true); NC.Sound.play('dispatch');
       if (G.wanted >= 4) c.boost = 1.08;
       return c;
     }
@@ -630,6 +640,7 @@
         const b = makeCar('police', cx + (horiz ? s * 6 : s * 25), cy + (horiz ? s * 25 : s * 6), (horiz ? Math.PI / 2 : 0) + s * 0.12, { parked: true });
         b.block = true;
       }
+      NC.Sound.play('dispatch'); NC.ui.toast('🚧 Roadblock ahead!', 'warn');
       return true;
     }
     return false;
@@ -640,7 +651,7 @@
     const p = makePed(c.x - rx * (c.d.wid / 2 + 12), c.y - ry * (c.d.wid / 2 + 12), { shirt: '#1f3a6e', cop: true });
     pushOutOfBuildings(p, 8);
     p.st = 'cop'; p.home = c; c.officer = p;
-    if (nearPlayer(c.x, c.y)) NC.Sound.play('door', 1, c.x);
+    if (nearPlayer(c.x, c.y)) { NC.Sound.play('door', 1, c.x); NC.Sound.play('whistle', 1, c.x); }
   }
 
   function updateHeli(dt) {
@@ -685,7 +696,8 @@
     if (G.wanted >= n) return;
     if (!G.wanted) G.contact = false;
     G.wanted = n; G.hideT = 0; G.starFlash = 1.5; G.seen = true; G.seeT = 0.6; NC.Sound.play('star');
-    const pp = playerPos(); G.lkp.x = pp.x; G.lkp.y = pp.y; G.blockCd = 8;
+    const pp = playerPos(); G.lkp.x = pp.x; G.lkp.y = pp.y; G.blockCd = 10;
+    G.copCd = Math.max(G.copCd, 3.5); // כוכבים שמגיעים ממשימה: כמה שניות של יתרון לפני שהניידת הראשונה מופיעה
     G.stats.maxStars = Math.max(G.stats.maxStars, n);
   }
   function clearWanted(evaded) {
@@ -743,7 +755,7 @@
     G.seen = seen;
     // שעון ההתחמקות רץ רק אחרי שהמשטרה כבר הגיעה (או שהתרחקת מזירת האירוע) – אחרת כוכב היה נעלם מעצמו לפני שמישהו הופיע
     if (seen) { if (check) G.contact = true; G.hideT = 0; G.lkp.x = pp.x; G.lkp.y = pp.y; }
-    else if (G.contact || Math.hypot(pp.x - G.lkp.x, pp.y - G.lkp.y) > 600) G.hideT += dt;
+    else if (G.contact || Math.hypot(pp.x - G.lkp.x, pp.y - G.lkp.y) > 600) { G.hideT += dt; if (G.hideT > 1.5) NC.Sound.play('hideTick'); }
     if (G.hideT > evadeTime()) { clearWanted(true); return; }
     G.copCd -= dt;
     const want = Math.round([0, 1, 2, 3, 4, 5][G.wanted] * NC.diff().cops);
@@ -751,8 +763,9 @@
     if (G.wanted >= 4) { G.blockCd -= dt; if (G.blockCd <= 0) G.blockCd = spawnRoadblock() ? (G.wanted >= 5 ? 11 : 16) : 2; }
     G.fieldT -= dt;
     if (G.fieldT <= 0) { G.fieldT = 0.35; M.fieldFrom(G.lkp.x, G.lkp.y, field); }
-    if (close && pspd < 32) G.bustT += dt; else if (arrest) G.bustT += dt * arrest; else G.bustT = Math.max(0, G.bustT - dt * 2);
-    if (G.bustT > (P.car ? 2.5 : 1) / (NC.diff().cops > 1 ? 1.2 : NC.diff().cops < 1 ? 0.8 : 1)) die('busted');
+    if (close && pspd < 24) G.bustT += dt; else if (arrest) G.bustT += dt * arrest; else G.bustT = Math.max(0, G.bustT - dt * 3);
+    if (G.bustT > 0.35) NC.Sound.play('warn'); // כמעט נעצרת – זוז!
+    if (G.bustT > (P.car ? 3.2 : 1.2) / (NC.diff().cops > 1 ? 1.25 : NC.diff().cops < 1 ? 0.8 : 1)) die('busted');
   }
 
   // ---------------- השחקן ----------------
@@ -760,13 +773,14 @@
     const P = G.player;
     if (G.dead || dmg <= 0 || G.attract) return;
     P.hp -= dmg * (dmg >= 900 ? 1 : NC.diff().dmg); G.hurtFlash = 0.4;
+    if (dmg > 3) NC.Sound.play('hurt');
     if (P.hp <= 0) { P.hp = 0; die('wasted'); }
   }
   function die(kind) {
     if (G.dead || G.attract) return;
     G.dead = { kind, t: 0 };
     if (kind === 'busted') G.stats.busted++; else G.stats.wasted++;
-    NC.Sound.play(kind === 'busted' ? 'fail' : 'wasted');
+    NC.Sound.play(kind === 'busted' ? 'busted' : 'wasted');
     NC.ui.buzz(300);
     if (NC.mission) NC.mission.fail(kind === 'busted' ? 'You were busted' : 'You were wasted');
   }
@@ -785,7 +799,21 @@
     // זמן עובר בבית החולים / בתחנה
     G.clock += 3; if (G.clock >= 24) { G.clock -= 24; G.day++; }
     NC.ui.toast(kind === 'busted' ? `🚓 Released from the station. Fine: $${fee}` : `🏥 Patched up at the hospital. Bill: $${fee}`);
+    NC.Sound.play(kind === 'busted' ? 'door' : 'heal'); if (fee) NC.Sound.play('pay');
     NC.saveGame();
+  }
+
+  // העברה מיידית (לניסיון חוזר של משימה): בלי משטרה, ועם הרכב אם מבקשים
+  function teleport(x, y, ang, keepCar) {
+    const P = G.player; let c = P.car;
+    if (c && (!keepCar || c.dead || c.burnT > 0 || c.tag)) { c.driver = null; c.hb = true; c.thr = 0; c.steer = 0; P.car = null; c = null; }
+    G.cars = G.cars.filter((o) => o === c || o.tag || !((o.ai && o.ai.cop) || o.block));
+    G.peds = G.peds.filter((p) => !p.cop);
+    clearWanted(false);
+    G.heli.mode = 0; G.heli.on = false; G.heli.cd = 6; G.bustT = 0;
+    G.cars = G.cars.filter((o) => o === c || o.tag || Math.hypot(o.x - x, o.y - y) > 120);
+    if (c) { c.x = x; c.y = y; c.ang = ang; c.vx = c.vy = 0; c.speed = 0; c.thr = 0; c.steer = 0; c.sk = null; }
+    P.x = x; P.y = y; P.vx = P.vy = 0; P.ang = ang; P.stun = 0;
   }
 
   function nearestEnterable() {
@@ -802,7 +830,7 @@
     if (G.dead || P.stun > 0 || G.attract) return;
     if (P.car) {
       const c = P.car;
-      if (Math.abs(c.speed) > 75) { NC.ui.toast('Slow down before getting out'); return; }
+      if (Math.abs(c.speed) > 75) { NC.ui.toast('Slow down before getting out'); NC.Sound.play('deny'); return; }
       const rx = -Math.sin(c.ang), ry = Math.cos(c.ang), off = c.d.wid / 2 + 13;
       const fx = Math.cos(c.ang), fy = Math.sin(c.ang), back = c.d.len / 2 + 13;
       const free = (x, y) => !M.insideB(x, y, 8) && !M.isDeep(x, y) && !G.active.some((o) => o !== c && Math.hypot(o.x - x, o.y - y) < o.d.len / 2 + 6);
@@ -810,20 +838,20 @@
       const sp = spots.find((q) => free(q[0], q[1])) || spots[0];
       P.x = sp[0]; P.y = sp[1];
       P.car = null; c.driver = null; c.thr = 0; c.steer = 0; c.hb = true; c.blink = 0; P.vx = P.vy = 0;
-      NC.Sound.play('door');
+      NC.Sound.play('door'); NC.Sound.play('engineOff');
       if (NC.mission) NC.mission.onExitCar(c);
       return;
     }
     const c = nearestEnterable();
-    if (!c) return;
+    if (!c) { NC.Sound.play('deny'); return; } // אין רכב בהישג יד
     if (c.driver === 'ai') {
       const wasCop = (c.ai && c.ai.cop) || c.type === 'police';
-      ejectDriver(c, false);
+      ejectDriver(c, false); NC.Sound.play('yelp', 1, c.x);
       G.stats.stolen++;
       crime(wasCop ? Math.max(1, 2 - G.wanted) : (G.copDist < 600 || G.patrolNear || Math.random() < 0.45 ? 1 : 0));
     }
     c.ai = null; c.driver = 'player'; c.parked = false; c.hb = false; c.blink = 0; P.car = c;
-    NC.Sound.play('door');
+    NC.Sound.play('door'); NC.Sound.play('ignite');
     if (NC.mission) NC.mission.onEnterCar(c);
   }
 
@@ -862,6 +890,14 @@
       } else { c.thr = I.thr; c.steer = I.steer; c.hb = I.hb; }
       P.x = c.x; P.y = c.y; P.ang = c.ang;
       const spd = Math.abs(c.speed);
+      if (!G.dead) {
+        if (c.hb && !P.hbWas && spd > 30) NC.Sound.play('handbrake');
+        const braking = c.thr < -0.5 && c.speed > 200;
+        if (braking && !P.brakeWas) NC.Sound.play('brake', clamp(spd / 400, 0.5, 1));
+        P.hbWas = c.hb; P.brakeWas = braking;
+        if (c.speed < -20 && c.d.mass > 1.3) NC.Sound.play('beep');
+        if (c.burnT > 0) NC.Sound.play('alarm'); else if (c.hp < c.d.hp * 0.25) NC.Sound.play('lowhp');
+      }
       G.stats.dist += spd * dt; if (spd > G.stats.topSpeed) G.stats.topSpeed = spd;
       // סימני צמיגים
       if ((c.slip > 110 || (c.hb && spd > 80)) && c.ground === M.ROAD) {
@@ -881,7 +917,12 @@
       P.vx = (I.mx / mag) * sp; P.vy = (I.my / mag) * sp;
       P.ang = Math.atan2(I.my, I.mx); P.walk += dt * sp * 0.085;
       if (shallow && Math.random() < dt * 9) Fx.ring(P.x, P.y, 4, '#ffffff', 34, 0.5);
-      if (sp > 150) { P.stepT = (P.stepT || 0) - dt; if (P.stepT <= 0) { P.stepT = 0.26; NC.Sound.play('step', 0.5); } }
+      P.stepT = (P.stepT || 0) - dt;
+      if (P.stepT <= 0) { // צעדים: קצב ועוצמה לפי המהירות, צליל לפי המשטח
+        const run = sp > 150, g = M.tileAt(P.x, P.y);
+        P.stepT = shallow ? 0.42 : run ? 0.26 : 0.36;
+        NC.Sound.play(shallow ? 'wade' : g === M.SAND || g === M.PARK || g === M.GLADE ? 'stepSoft' : 'step', run ? 0.6 : 0.38);
+      }
     } else { P.vx = P.vy = 0; }
     P.x += P.vx * dt; P.y += P.vy * dt;
     pushOutOfBuildings(P, 9);
@@ -928,6 +969,7 @@
         c.burnT -= dt;
         const fx = Math.cos(c.ang) * c.d.len * 0.3, fy = Math.sin(c.ang) * c.d.len * 0.3;
         if (Math.random() < dt * 34) Fx.fire(c.x + fx, c.y + fy);
+        if (Math.random() < dt * 12 && nearPlayer(c.x, c.y)) NC.Sound.play('crackle', 1, c.x);
         if (Math.random() < dt * 11) Fx.smoke(c.x + fx, c.y + fy, '#2b2b2b', 0, 0, 8);
         if (c.burnT <= 0) explodeCar(c);
       } else if (hf < 0.5 && Math.random() < dt * (hf < 0.25 ? 14 : 6)) {
@@ -960,7 +1002,7 @@
             if (Math.hypot(p.x - P.x, p.y - P.y) < 700) NC.Sound.play('thud', 1, p.x);
             if (c === P.car && !G.attract) {
               G.stats.pedsHit++; NC.ui.buzz(40);
-              if (p.cop) crime(G.wanted < 3 ? 3 - G.wanted : 1); else crime(1);
+              if (p.cop) crime(G.wanted < 3 ? 3 - G.wanted : G.wanted < 4 && sp > 170 ? 1 : 0); else crime(1); // שוטר שנפגע בטעות בתמרון איטי לא מוסיף כוכב רביעי
               for (const q of G.peds) if (q !== p && Math.hypot(q.x - p.x, q.y - p.y) < 260) fleePed(q, c.x, c.y);
             }
           } else { p.x += dx / d * (r - d); p.y += dy / d * (r - d); }
@@ -1025,6 +1067,6 @@
 
   NC.world = {
     resetWorld, serialize, update, makeCar, makePed, newAI, enterExit, nearestEnterable, crime, setWanted, clearWanted, respawn, die, hurtPlayer, horn,
-    addPart, addFloater, playerPos, playerSpeed, damageCar, spawnCop, fleePed, ejectDriver, headingDir, evadeTime, DIRS, LANE,
+    addPart, addFloater, playerPos, playerSpeed, damageCar, spawnCop, fleePed, ejectDriver, headingDir, evadeTime, teleport, DIRS, LANE,
   };
 })();

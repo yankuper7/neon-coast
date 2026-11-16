@@ -6,7 +6,7 @@
   const G = NC.G, W = NC.world, Sound = NC.Sound, M = NC.map, S = NC.settings, Wx = NC.weather;
   const SAVE_KEY = 'neonCoast.save';
   let state = 'menu'; // menu | play | pause | brief
-  let last = 0, timeScale = 1, briefDef = null, bot = null, saveT = 0;
+  let last = 0, timeScale = 1, briefDef = null, bot = null, saveT = 0, endT = 0;
   let touchUI = NC.isTouch, playUI = false, tapped = false; // tapped: הדפדפן מרשה רטט רק אחרי נגיעה אמיתית
 
   // ---------------- קלט ----------------
@@ -35,6 +35,7 @@
       else if (screen === 'brief') { if (e.code === 'Escape') $('btnDecline').click(); }
       else if (screen === 'confirm') { if (e.code === 'Escape') $('btnConfirmNo').click(); }
       else if (screen === 'settings' || screen === 'howto') { if (e.code === 'Escape') back(); }
+      else if (screen === 'ending') { if (e.code === 'Escape') $('btnEndPlay').click(); }
     }
     if (e.code === 'KeyM' && !e.repeat) toggleMute();
   });
@@ -53,6 +54,7 @@
     e.preventDefault();
     const i = items.indexOf(document.activeElement);
     items[(i + (e.code === 'ArrowDown' ? 1 : items.length - 1) + (i < 0 && e.code === 'ArrowUp' ? 1 : 0)) % items.length].focus();
+    Sound.play('hover');
   }
 
   const cv = NC.render.canvas;
@@ -118,7 +120,7 @@
   }
 
   // ---------------- מסכים ----------------
-  const SCREENS = ['menu', 'settings', 'howto', 'pause', 'brief', 'confirm'];
+  const SCREENS = ['menu', 'settings', 'howto', 'pause', 'brief', 'confirm', 'ending'];
   const stack = [];
   let screen = 'menu';
   function show(id) {
@@ -155,9 +157,10 @@
       while (box.children.length >= 3) box.firstChild.remove();
       const t = document.createElement('div'); t.className = 'toast' + (kind ? ' ' + kind : ''); t.textContent = text;
       box.appendChild(t);
+      Sound.soft(kind === 'good' ? 'toastGood' : kind === 'warn' ? 'toastWarn' : 'toast');
       setTimeout(() => t.remove(), 3900);
     },
-    objective(text) { const o = $('objective'); if (o.textContent !== text) { o.textContent = text; o.style.animation = 'none'; void o.offsetWidth; o.style.animation = ''; } o.classList.toggle('hidden', !text); },
+    objective(text) { const o = $('objective'); if (o.textContent !== text) { o.textContent = text; o.style.animation = 'none'; void o.offsetWidth; o.style.animation = ''; if (text) Sound.soft('objective'); } o.classList.toggle('hidden', !text); },
     banner(title, sub, kind, lines) {
       const b = $('banner'); $('bannerTitle').textContent = title; $('bannerSub').textContent = sub || '';
       const L = $('bannerLines'); L.textContent = '';
@@ -174,12 +177,15 @@
       state = 'brief'; releaseAll(); Sound.silence(); Sound.play('brief'); stack.length = 0; show('brief');
     },
     isPlaying() { return state === 'play'; },
+    retryHint() { return touchUI ? 'Tap ↻ to try again right away' : padUsed ? 'Press Y to try again right away' : 'Press T to try again right away'; },
+    fade() { fadeIn(); },
+    ending(delay) { endT = Math.max(0.1, delay || 0.1); }, // מסך הסיום יופיע בעוד כמה שניות, אחרי כרזת הניצחון
     nearCar(v) { if (cache.near !== v) { cache.near = v; $('btnEnter').classList.toggle('dim', !v && !G.player.car); } },
     buzz(ms) { if (S.vibrate && touchUI && tapped && navigator.vibrate && state === 'play') { try { navigator.vibrate(Math.round(ms)); } catch (e) { /* לא נתמך */ } } },
   };
 
   function updateMuteUI() { $('btnMute').textContent = Sound.muted ? '🔇' : '🔊'; }
-  function toggleMute() { Sound.init(); Sound.setMuted(!Sound.muted); updateMuteUI(); }
+  function toggleMute() { Sound.init(); Sound.setMuted(!Sound.muted); updateMuteUI(); if (!Sound.muted) Sound.play('toggle'); }
   function cycleRadio() { Sound.init(); NC.ui.toast('📻 ' + Sound.nextStation()); }
 
   let fpsN = 0, fpsT = 0;
@@ -241,7 +247,14 @@
     if (bannerT > 0) { bannerT -= dt; if (bannerT <= 0) $('banner').className = 'hidden'; }
     // שם השכונה כשנכנסים אליה
     const dk = M.districtAt(P.x, P.y);
-    if (dk !== lastDistrict && dk !== 'sea') { lastDistrict = dk; $('district').textContent = M.DISTRICTS[dk].name; $('district').classList.add('show'); districtT = 3.2; }
+    if (dk !== lastDistrict && dk !== 'sea') {
+      lastDistrict = dk; const el = $('district'); el.textContent = M.DISTRICTS[dk].name;
+      // שם השיר של השכונה, כשמתנגן פסקול העיר
+      const tr = Sound.DISTRICT[dk];
+      if (tr && Sound.radioSel === 'local' && !Sound.muted && S.music > 0) { const sm = document.createElement('small'); sm.textContent = '♪ ' + tr.name; el.appendChild(sm); }
+      el.classList.add('show'); districtT = 3.6;
+      if (G.playTime > 3) Sound.soft('zone');
+    }
     if (districtT > 0) { districtT -= dt; if (districtT <= 0) $('district').classList.remove('show'); }
     // מסך "נעצרת" / "מחוק"
     const dk2 = G.dead ? G.dead.kind : '';
@@ -276,7 +289,7 @@
   for (const el of document.querySelectorAll('.slider input')) el.addEventListener('input', () => { Sound.init(); S[el.dataset.key] = el.value / 100; settingChanged(el.dataset.key); });
   for (const el of document.querySelectorAll('.slider input')) el.addEventListener('change', () => { if (el.dataset.key !== 'music') Sound.play('click'); });
   for (const g of document.querySelectorAll('.seg')) for (const b of g.children) b.addEventListener('click', () => { Sound.init(); Sound.play('click'); S[g.dataset.key] = b.dataset.v; settingChanged(g.dataset.key); });
-  for (const el of document.querySelectorAll('.toggle input')) el.addEventListener('change', () => { Sound.init(); Sound.play('click'); S[el.dataset.key] = el.checked; settingChanged(el.dataset.key); });
+  for (const el of document.querySelectorAll('.toggle input')) el.addEventListener('change', () => { Sound.init(); Sound.play('toggle'); S[el.dataset.key] = el.checked; settingChanged(el.dataset.key); });
 
   // ---------------- שמירה ----------------
   NC.saveGame = () => { if (state === 'menu' || G.attract || G.dead) return; NC.store.set(SAVE_KEY, Object.assign({ v: 2, at: Date.now() }, W.serialize())); saveT = 0; };
@@ -303,18 +316,20 @@
   function startGame(save) {
     Sound.init();
     W.resetWorld(save); NC.mission.reset(); Sound.quiet = false; G.attract = false;
+    Sound.setZone(M.districtAt(G.player.x, G.player.y), true);
     lastDistrict = ''; cache.dead = null; shownMoney = G.money; stack.length = 0;
     NC.ui.objective(''); $('banner').className = 'hidden'; $('toasts').textContent = '';
     show(null); setPlayUI(true);
     state = 'play'; last = performance.now(); saveT = 0;
-    Sound.music('game'); fadeIn();
+    Sound.music('game'); fadeIn(); Sound.play('start');
+    endT = save && !G.ended && NC.mission.storyComplete() ? 2.5 : 0; // סיפור שהושלם בלי שמסך הסיום הוצג
     if (save) NC.ui.toast('Welcome back to Neon Coast 🌴');
     else if (touchUI) setTimeout(() => state === 'play' && NC.ui.toast('Drag anywhere to move'), 2500);
     NC.saveGame();
   }
   function pause() {
     if (state !== 'play') return;
-    state = 'pause'; releaseAll(); Sound.silence(); Sound.music('pause');
+    state = 'pause'; releaseAll(); Sound.silence(); Sound.music('pause'); Sound.play('pauseIn');
     NC.saveGame();
     NC.render.drawBigMap($('bigmap'));
     const pr = NC.mission.progress(), st = G.stats, t = Math.floor(G.playTime / 60);
@@ -325,14 +340,120 @@
       + cell(st.stolen, 'Cars taken') + cell(st.evaded, 'Escapes') + cell(st.busted + ' / ' + st.wasted, 'Busted / Wasted');
     const ml = $('pauseMissions'); ml.textContent = '';
     for (const m of NC.mission.list()) { const s = document.createElement('span'); s.className = m.state; s.textContent = (m.state === 'done' ? '✓ ' : m.state === 'locked' ? '🔒 ' : '● ') + (m.state === 'locked' ? '???' : m.title); ml.appendChild(s); }
+    $('btnEnding').classList.toggle('hidden', !NC.mission.storyComplete());
     stack.length = 0; show('pause');
   }
-  function resume() { if (state !== 'pause') return; stack.length = 0; show(null); state = 'play'; last = performance.now(); Sound.music('game'); }
+  function resume() { if (state !== 'pause') return; stack.length = 0; show(null); state = 'play'; last = performance.now(); Sound.music('game'); Sound.play('pauseOut'); }
   function toMenu() {
     NC.saveGame();
     state = 'menu'; Sound.silence(); setPlayUI(false); $('banner').className = 'hidden'; $('dead').className = 'hidden';
     attract(); refreshMenu(); stack.length = 0; show('menu'); fadeIn();
   }
+  // ---------------- מסך הסיום ----------------
+  const QUOTES = [
+    ['R', '#ffd23f', 'Aunt Rosa', 'I knew it the day you walked in. The taxi stand is yours whenever you want it, sweetheart.'],
+    ['M', '#ff9d3d', 'Mickey Keys', 'Barely a scratch on the cargo. You are the best driver I ever had – do not tell the others.'],
+    ['L', '#ff7ac8', 'Lola Neon', 'Everyone on the Strip knows your name now. Your table is waiting. Forever.'],
+    ['Z', '#5fe9ff', 'Captain Ziv', 'The port never saw driving like that. Fair winds, kid.'],
+  ];
+  function streetName(st) { // כינוי לפי סגנון המשחק
+    if (G.pkgs.length >= NC.PKGS.length) return 'The Flamingo King';
+    if (st.busted + st.wasted === 0) return 'The Ghost of Neon Coast';
+    if (st.evaded >= 12) return 'Untouchable';
+    if (st.topSpeed * 0.36 >= 175) return 'Speed Demon';
+    if (st.wrecked >= 12) return 'The Wrecking Ball';
+    if (st.pedsHit === 0) return 'The Gentle Driver';
+    if (st.stolen >= 25) return 'Sticky Fingers';
+    return 'The Boardwalk Legend';
+  }
+  function buildSkyline() { // קו רקיע של העיר מול השמש: בניינים כהים עם חלונות מוארים
+    const el = $('endSkyline'); if (el.firstChild) return;
+    const r = NC.rng(77), W = 1200, H = 260; let x = 0, rects = '', wins = '';
+    while (x < W) {
+      const w = 26 + r() * 54, mid = 1 - Math.abs(x + w / 2 - W / 2) / (W / 2), h = 30 + r() * 70 + mid * mid * 120 * (0.5 + r());
+      rects += `<rect x="${x.toFixed(0)}" y="${(H - h).toFixed(0)}" width="${(w + 1).toFixed(0)}" height="${h.toFixed(0)}"/>`;
+      if (r() < 0.3) rects += `<rect x="${(x + w / 2 - 1.5).toFixed(0)}" y="${(H - h - 18).toFixed(0)}" width="3" height="18"/>`;
+      for (let wy = H - h + 8; wy < H - 10; wy += 13) for (let wx = x + 6; wx < x + w - 8; wx += 10) if (r() < 0.34) wins += `<rect x="${wx.toFixed(0)}" y="${wy.toFixed(0)}" width="4" height="6" fill="${r() < 0.5 ? '#ffe9a8' : r() < 0.5 ? '#ff7ac8' : '#7fefff'}" opacity="${(0.5 + r() * 0.5).toFixed(2)}"/>`;
+      x += w;
+    }
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><g fill="#120726">${rects}</g>${wins}</svg>`;
+  }
+  // זיקוקים על קנבס נפרד מעל השמיים
+  const endCv = $('endFx'), eg = endCv.getContext('2d'), FW = ['#ff3fa4', '#19e3ff', '#ffe14d', '#9d5cff', '#3dff9e', '#ff9d3d', '#ffffff'];
+  let rockets = [], sparks = [], fwT = 0, fwLast = 0, fwN = 0, fwOn = false;
+  function fireworks(now) {
+    if (screen !== 'ending') { fwOn = false; return; }
+    requestAnimationFrame(fireworks);
+    const dt = Math.min(0.05, Math.max(0, (now - fwLast) / 1000)); fwLast = now;
+    const w = endCv.clientWidth, h = endCv.clientHeight, d = Math.min(2, window.devicePixelRatio || 1);
+    if (endCv.width !== Math.round(w * d) || endCv.height !== Math.round(h * d)) { endCv.width = Math.round(w * d); endCv.height = Math.round(h * d); }
+    eg.setTransform(d, 0, 0, d, 0, 0);
+    eg.globalCompositeOperation = 'destination-out'; eg.fillStyle = 'rgba(0,0,0,0.16)'; eg.fillRect(0, 0, w, h);
+    eg.globalCompositeOperation = 'lighter';
+    fwT -= dt;
+    if (fwT <= 0 && !document.hidden) { // רקטה חדשה; אחרי הפתיחה הקצב נרגע
+      fwT = fwN < 6 ? 0.3 + Math.random() * 0.4 : fwN < 24 ? 0.6 + Math.random() * 1.1 : 1.6 + Math.random() * 2.4;
+      const ty = h * (0.08 + Math.random() * 0.3), y0 = h * 0.72;
+      rockets.push({ x: w * (0.08 + Math.random() * 0.84), y: y0, vy: (ty - y0) / 0.5, ty, col: FW[Math.floor(Math.random() * FW.length)] });
+      Sound.play('firework', fwN < 8 ? 0.8 : 0.4); fwN++;
+    }
+    for (const k of rockets) {
+      k.y += k.vy * dt; eg.fillStyle = '#fff3c4'; eg.beginPath(); eg.arc(k.x, k.y, 2, 0, 6.283); eg.fill();
+      if (k.y <= k.ty) {
+        k.done = true; const n = 44 + Math.floor(Math.random() * 30), pw = 90 + Math.random() * 130, two = Math.random() < 0.35 ? FW[Math.floor(Math.random() * FW.length)] : k.col;
+        for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, sp = pw * (0.35 + Math.random() * 0.65); sparks.push({ x: k.x, y: k.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1 + Math.random() * 0.8, max: 1.8, col: i % 2 ? k.col : two }); }
+      }
+    }
+    rockets = rockets.filter((k) => !k.done);
+    for (const q of sparks) {
+      q.life -= dt; const f = Math.exp(-1.6 * dt); q.vx *= f; q.vy = q.vy * f + 70 * dt; q.x += q.vx * dt; q.y += q.vy * dt;
+      eg.globalAlpha = Math.max(0, Math.min(1, q.life)); eg.fillStyle = q.col; eg.beginPath(); eg.arc(q.x, q.y, 1.8, 0, 6.283); eg.fill();
+    }
+    eg.globalAlpha = 1;
+    sparks = sparks.filter((q) => q.life > 0); if (sparks.length > 900) sparks.splice(0, sparks.length - 900);
+  }
+  function countUp(el, to, fmt, delay) { // המספרים "רצים" אל הערך הסופי
+    const t0 = performance.now() + delay; el.textContent = fmt(0);
+    const step = (now) => { if (screen !== 'ending') { el.textContent = fmt(to); return; } const k = clamp((now - t0) / 1300, 0, 1), e = 1 - Math.pow(1 - k, 3); el.textContent = fmt(to * e); if (k < 1) requestAnimationFrame(step); else el.textContent = fmt(to); };
+    requestAnimationFrame(step);
+  }
+  function showEnding() {
+    if (state !== 'play' && state !== 'pause') return;
+    endT = 0; state = 'ending'; releaseAll(); Sound.silence(); Sound.music('ending'); Sound.play('fanfare');
+    G.ended = true; NC.saveGame();
+    buildSkyline();
+    const Q = $('endQuotes'); Q.textContent = '';
+    for (const [ic, col, who, text] of QUOTES) {
+      const d = document.createElement('div'), i = document.createElement('i'), box = document.createElement('div'), b = document.createElement('b'), sp = document.createElement('span');
+      d.className = 'end-quote'; i.textContent = ic; i.style.background = col; i.style.boxShadow = `0 0 12px ${col}`; b.textContent = who; sp.textContent = '“' + text + '”';
+      box.appendChild(b); box.appendChild(sp); d.appendChild(i); d.appendChild(box); Q.appendChild(d);
+    }
+    const st = G.stats, pr = NC.mission.progress(), mins = Math.floor(G.playTime / 60);
+    $('endRank').textContent = streetName(st);
+    const cells = [
+      [mins, (v) => (v < 60 ? Math.round(v) + ' min' : Math.floor(v / 60) + 'h ' + Math.round(v % 60) + 'm'), 'Time played'], [st.earned, (v) => NC.fmtMoney(v), 'Money earned', 1],
+      [st.dist / 10000, (v) => v.toFixed(1) + ' km', 'Distance driven'], [st.topSpeed * 0.36, (v) => Math.round(v) + ' km/h', 'Top speed'],
+      [st.evaded, (v) => String(Math.round(v)), 'Police escapes'], [st.stolen, (v) => String(Math.round(v)), 'Cars taken'],
+      [G.pkgs.length, (v) => '🦩 ' + Math.round(v) + '/' + NC.PKGS.length, 'Flamingos'], [pr.pct, (v) => Math.round(v) + '%', 'Completion', 1],
+    ];
+    const SG = $('endStats'); SG.textContent = '';
+    cells.forEach(([to, fmt, label, hl], n) => { const c = document.createElement('div'), b = document.createElement('b'), sp = document.createElement('span'); c.className = 'stat' + (hl ? ' hl' : ''); sp.textContent = label; c.appendChild(b); c.appendChild(sp); SG.appendChild(c); countUp(b, to, fmt, 3100 + n * 110); });
+    const left = [];
+    if (G.pkgs.length < NC.PKGS.length) left.push(`🦩 ${NC.PKGS.length - G.pkgs.length} golden flamingos`);
+    if (pr.medals < pr.trials) left.push(`🏁 ${pr.trials - pr.medals} time-trial medals`);
+    left.push('🚕 endless taxi fares');
+    $('endLeft').textContent = pr.pct >= 100 ? '💯 You found and won everything. Absolute legend.' : 'Still out there: ' + left.join(' · ');
+    stack.length = 0; show('ending');
+    rockets = []; sparks = []; fwT = 0.9; fwN = 0; eg.clearRect(0, 0, endCv.width, endCv.height);
+    if (!fwOn) { fwOn = true; fwLast = performance.now(); requestAnimationFrame(fireworks); }
+  }
+  function closeEnding(menu) {
+    if (state !== 'ending') return;
+    if (menu) { state = 'play'; toMenu(); return; }
+    show(null); state = 'play'; last = performance.now(); Sound.music('game'); fadeIn();
+    NC.ui.toast('🌴 The city is yours – taxi fares, time trials and flamingos are still waiting', 'good');
+  }
+
   // העיר חיה מאחורי התפריט, בשעת השקיעה
   function attract() { W.resetWorld(null); NC.mission.reset(); Sound.quiet = true; G.attract = true; G.clock = 19.1; Sound.music('menu'); }
 
@@ -354,6 +475,7 @@
         Sound.ambience(dt);
         updateHud(dt);
         saveT += dt; if (saveT > 15 && !G.dead) NC.saveGame();
+        if (endT > 0 && !G.dead) { endT -= dt; if (endT <= 0 && state === 'play') showEnding(); }
       } else {
         pollPad();
         if (state === 'menu') { I.mx = I.my = I.thr = I.steer = 0; I.hb = false; W.update(Math.min(dt, 0.05)); }
@@ -384,24 +506,28 @@
   }
 
   // ---------------- כפתורים ----------------
-  const on = (id, fn) => $(id).addEventListener('click', (e) => { Sound.init(); Sound.play('click'); fn(e); });
+  const on = (id, fn, snd) => $(id).addEventListener('click', (e) => { Sound.init(); if (snd !== '') Sound.play(snd || 'click'); fn(e); });
+  // מעבר עכבר על כפתור – תקתוק עדין
+  for (const b of document.querySelectorAll('.btn, .icon-btn, .seg button')) b.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') Sound.play('hover'); });
   on('btnNew', () => { if (!loadSave()) startGame(null); else ask('Start a new game?', 'Your saved progress will be replaced.', 'New game', () => startGame(null)); });
   on('btnContinue', () => startGame(loadSave()));
   on('btnSettings', () => { syncSettingsUI(); push('settings'); });
   on('btnPauseSettings', () => { syncSettingsUI(); push('settings'); });
   on('btnHowto', () => push('howto')); on('btnPauseHowto', () => push('howto'));
-  on('btnHowtoBack', back); on('btnSettingsBack', back);
-  on('btnMute', toggleMute);
-  on('btnPause', pause); on('btnResume', resume); on('btnQuit', toMenu);
-  on('btnRadio', cycleRadio);
-  on('btnAccept', () => { show(null); state = 'play'; last = performance.now(); NC.mission.begin(briefDef); });
-  on('btnDecline', () => { NC.mission.decline(briefDef); show(null); state = 'play'; last = performance.now(); });
-  on('btnConfirmNo', back);
+  on('btnHowtoBack', back, 'back'); on('btnSettingsBack', back, 'back');
+  on('btnMute', toggleMute, '');
+  on('btnPause', pause, ''); on('btnResume', resume, ''); on('btnQuit', toMenu, 'back');
+  on('btnRadio', cycleRadio, '');
+  on('btnAccept', () => { show(null); state = 'play'; last = performance.now(); NC.mission.begin(briefDef); }, 'accept');
+  on('btnDecline', () => { NC.mission.decline(briefDef); show(null); state = 'play'; last = performance.now(); }, 'decline');
+  on('btnConfirmNo', back, 'back');
+  on('btnEndPlay', () => closeEnding(false), 'accept'); on('btnEndMenu', () => closeEnding(true), 'back');
+  on('btnEnding', () => showEnding());
   on('btnConfirmYes', () => { const fn = confirmFn; confirmFn = null; back(); if (fn) fn(); });
   on('btnErase', () => ask('Erase saved game?', 'Money, missions, flamingos and records will be deleted. Settings are kept.', 'Erase', () => {
     try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* מצב פרטי */ }
     if (state !== 'menu') toMenu(); else refreshMenu();
-    NC.ui.toast('Saved game erased');
+    Sound.play('erase'); NC.ui.toast('Saved game erased');
   }));
   const fsEl = document.documentElement, canFs = !!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen);
   $('btnFullscreen').classList.toggle('hidden', !canFs);
@@ -441,6 +567,6 @@
   // גישה לבדיקות אוטומטיות בלבד
   window.__nc = {
     NC, get state() { return state; }, get screen() { return screen; }, set timeScale(v) { timeScale = clamp(v | 0, 1, 12); }, set bot(f) { bot = f; },
-    startGame, pause, resume, toMenu, loadSave, perf: () => ({ avgMs, autoLevel, quality: NC.render.quality }),
+    startGame, pause, resume, toMenu, loadSave, showEnding, perf: () => ({ avgMs, autoLevel, quality: NC.render.quality }),
   };
 })();
